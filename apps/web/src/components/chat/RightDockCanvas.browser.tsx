@@ -362,14 +362,28 @@ describe("右栏 画布: one click, usable, and kept", () => {
     });
   }
 
-  it("组件 in the hosted bar shows its glyph, turns 内容创作 off and on, keeps the board, and the choice survives reopening", async () => {
+  it("组件 in the hosted bar offers 内容创作 and 设计 (no bloat items), toggles and persists cleanly", async () => {
     await mountDock("light");
     await userEvent.click(page.getByTestId("right-dock-empty-action-canvas"));
     await waitForCanvasReady();
     const frame = () => page.frameLocator(page.getByTitle("Moss Canvas", { exact: true }));
     const kitsButton = () => frame().getByRole("button", { name: "组件", exact: true });
     const imageCard = () => frame().getByRole("button", { name: "图片卡", exact: true });
+    const frameTool = () => frame().getByRole("button", { name: "智能画板（F）", exact: true });
     const contentKit = () => frame().getByRole("menuitemcheckbox", { name: "内容创作" });
+    const designKit = () => frame().getByRole("menuitemcheckbox", { name: "设计" });
+
+    // Removed bloat triggers must not appear in the bar or 更多 menu.
+    expect(canvasDocument()?.querySelector('[data-moss-bar-tool="sticker"]')).toBeNull();
+    expect(canvasDocument()?.querySelector('[data-moss-bar-tool="timer"]')).toBeNull();
+    const moreBtn = canvasDocument()?.querySelector<HTMLElement>('[data-moss-bar-tool="more"]');
+    if (moreBtn) {
+      await userEvent.click(moreBtn);
+      for (const bloat of ["贴纸（表情投票）", "倒计时", "知识库", "项目", "Agent 与接口"]) {
+        expect(canvasDocument()?.textContent ?? "").not.toContain(bloat);
+      }
+      await userEvent.keyboard("{Escape}");
+    }
 
     // The button sits right before 问 Moss, and its glyph is served by Moss (canvasHostGlyphs.ts).
     await expect.element(kitsButton()).toBeVisible();
@@ -394,9 +408,18 @@ describe("右栏 画布: one click, usable, and kept", () => {
     await userEvent.keyboard("{Escape}");
     await expect.element(imageCard()).toBeVisible();
 
-    // Turn 内容创作 off: the cards leave the bar, the board keeps what it holds.
+    // Turn 内容创作 off: the cards leave the bar, the board keeps what it holds; 设计 kit toggles frame tool.
     await userEvent.click(kitsButton());
     await expect.element(contentKit()).toHaveAttribute("aria-checked", "true");
+    await expect.element(designKit()).toHaveAttribute("aria-checked", "true");
+    expect(canvasDocument()?.textContent ?? "").not.toContain("思考");
+    await userEvent.click(designKit());
+    await expect.element(designKit()).toHaveAttribute("aria-checked", "false");
+    await expect
+      .poll(() => canvasDocument()?.querySelector('[data-moss-bar-tool="frame"]') ?? null)
+      .toBeNull();
+    await userEvent.click(designKit());
+    await expect.element(frameTool()).toBeVisible();
     await userEvent.click(contentKit());
     await expect.element(contentKit()).toHaveAttribute("aria-checked", "false");
     await expect

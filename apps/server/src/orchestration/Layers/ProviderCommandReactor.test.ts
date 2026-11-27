@@ -19059,6 +19059,80 @@ describe("ProviderCommandReactor", () => {
     });
   });
 
+  it("preserves a live running codex session when a native steer fails while the turn stays active", async () => {
+    const harness = await createHarness({
+      threadModelSelection: {
+        provider: "codex",
+        model: "gpt-5.4",
+      },
+    });
+    const now = new Date().toISOString();
+    const threadId = ThreadId.makeUnsafe("thread-1");
+
+    harness.setRuntimeSessionTurnState({
+      threadId: "thread-1",
+      status: "running",
+      activeTurnId: asTurnId("turn-live-codex"),
+    });
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.makeUnsafe("cmd-session-running-steer-preserves-live"),
+        threadId,
+        session: {
+          threadId,
+          status: "running",
+          providerName: "codex",
+          runtimeMode: "full-access",
+          activeTurnId: asTurnId("turn-live-codex"),
+          lastError: null,
+          updatedAt: now,
+        },
+        createdAt: now,
+      }),
+    );
+
+    harness.steerTurn.mockReset();
+    harness.steerTurn.mockReturnValueOnce(
+      Effect.fail(
+        new ProviderAdapterRequestError({
+          provider: "codex",
+          method: "turn/steer",
+          detail: "Timed out waiting for turn/steer.",
+        }),
+      ),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-steer-live-preserve"),
+        threadId,
+        message: {
+          messageId: asMessageId("msg-steer-live-preserve"),
+          role: "user",
+          text: "Steer while live turn continues",
+          attachments: [],
+        },
+        dispatchMode: "steer",
+        runtimeMode: "full-access",
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.steerTurn.mock.calls.length === 1);
+    await harness.drain();
+
+    const thread = (await Effect.runPromise(harness.engine.getReadModel())).threads[0]!;
+    expect(thread.session?.status).toBe("running");
+    expect(thread.session?.activeTurnId).toBe("turn-live-codex");
+    expect(thread.session?.lastError).toBeNull();
+    expect(
+      thread.activities.some((activity) => activity.kind === "provider.turn.start.failed"),
+    ).toBe(true);
+  });
+
   it("never restarts a live codex session during a mid-turn native steer even when runtimeMode changed", async () => {
     const harness = await createHarness({
       threadModelSelection: {

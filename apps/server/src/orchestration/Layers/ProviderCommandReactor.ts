@@ -6158,6 +6158,11 @@ const make = Effect.gen(function* () {
                 failure.reason === "previous-runtime-not-stopped";
               const failedAntigravitySteer =
                 isNativeSteer && !steerFellBackToNewTurn && liveSession?.provider === "antigravity";
+              const stillRunningLiveTurn =
+                isNativeSteer && !steerFellBackToNewTurn
+                  ? (yield* resolveLiveProviderTurnId(event.payload.threadId)) !== undefined
+                  : false;
+              const failedSteerPreservesLiveTurn = failedAntigravitySteer || stillRunningLiveTurn;
               const detail = previousRuntimeNotStopped
                 ? PREVIOUS_RUNTIME_NOT_STOPPED_DETAIL
                 : Cause.pretty(cause);
@@ -6189,10 +6194,21 @@ const make = Effect.gen(function* () {
                 });
               }
               // This request never entered the prompt queue. Its original turn already
-              // settled or was replaced; preserve that newer state instead of setting
-              // the session into error.
+              // settled or is still running live; preserve that state instead of
+              // setting the session into error.
               if (
-                failedAntigravitySteer ||
+                stillRunningLiveTurn &&
+                !failedAntigravitySteer &&
+                !(
+                  failure instanceof ProviderAdapterValidationError &&
+                  failure.operation === "turn/steer.stale"
+                )
+              ) {
+                if (isPendingQueuedDispatch) yield* clearPendingQueuedDispatch;
+                return;
+              }
+              if (
+                failedSteerPreservesLiveTurn ||
                 (failure instanceof ProviderAdapterValidationError &&
                   failure.operation === "turn/steer.stale")
               ) {
@@ -6297,6 +6313,9 @@ const make = Effect.gen(function* () {
               // steer RPC. Seamlessly start a new turn with the same messageId
               // (or enqueue behind any concurrent new turn) with zero error.
               steerFellBackToNewTurn = true;
+              if (turnStartDeliveryDispatched.has(event.sequence)) {
+                turnStartDeliveryDispatched.set(event.sequence, false);
+              }
               yield* orchestrationEngine.dispatch({
                 type: "thread.message.user.set-turn-boundary",
                 commandId: CommandId.makeUnsafe(

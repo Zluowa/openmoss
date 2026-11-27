@@ -2382,7 +2382,7 @@ export function DesignEditor(props: {
               role="toolbar"
               aria-label="设计工具"
               data-design-bottom-pill=""
-              className="pointer-events-auto flex max-w-full items-center gap-0.5 overflow-x-auto rounded-full border border-border bg-popover/95 px-2 py-1 shadow-xl backdrop-blur-sm [scrollbar-width:none]"
+              className="pointer-events-auto flex max-w-full items-center gap-0.5 overflow-x-auto rounded-popover border border-border/80 bg-popover/95 p-1 shadow-lg backdrop-blur-sm [scrollbar-width:none]"
             >
               {(["select", "hand"] as const).map((tool) => renderTool(tool))}
               {!editor.readOnly ? (
@@ -2471,7 +2471,7 @@ export function DesignEditor(props: {
                   <Button
                     size="xs"
                     variant="ghost"
-                    className="gap-1 rounded-full text-ui-xs text-[var(--primary)]"
+                    className="gap-1 rounded-control text-ui-xs text-[var(--primary)]"
                     data-testid="design-undo-moss"
                     onClick={handleUndoAi}
                   >
@@ -2481,19 +2481,29 @@ export function DesignEditor(props: {
                   <SpaceToolbarDivider />
                 </>
               ) : null}
+              <SpaceToolbarButton
+                icon={PanelRightOpenIcon}
+                label={panelOpen ? "隐藏设计面板" : "显示设计面板"}
+                pressed={panelOpen}
+                onClick={() => setPanelOpen((v) => !v)}
+                testId="design-pill-panel-toggle"
+              />
               {dock ? null : (
-                <Button
-                  size="xs"
-                  variant="ghost"
-                  disabled={!canAsk}
-                  aria-pressed={asking}
-                  data-testid="design-ask"
-                  className="shrink-0 gap-1 rounded-full px-2.5 text-ui-sm font-medium"
-                  onClick={openDockFromPill}
-                >
-                  <SparklesIcon className="size-3.5 text-[var(--primary)]" aria-hidden />
-                  <span>{running ? "Moss 正在思考…" : "问 Moss"}</span>
-                </Button>
+                <>
+                  <SpaceToolbarDivider />
+                  <Button
+                    size="xs"
+                    variant="ghost"
+                    disabled={!canAsk}
+                    aria-pressed={asking}
+                    data-testid="design-ask"
+                    className="shrink-0 gap-1 rounded-control bg-[color-mix(in_srgb,var(--primary)_12%,transparent)] px-2.5 text-ui-sm font-medium text-[var(--primary)] hover:bg-[color-mix(in_srgb,var(--primary)_18%,transparent)]"
+                    onClick={openDockFromPill}
+                  >
+                    <SparklesIcon className="size-3.5 text-[var(--primary)]" aria-hidden />
+                    <span>{running ? "Moss 正在思考…" : "问 Moss"}</span>
+                  </Button>
+                </>
               )}
             </div>
           </div>

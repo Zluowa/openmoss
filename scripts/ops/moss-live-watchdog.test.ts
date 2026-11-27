@@ -131,8 +131,8 @@ describe("MossLiveWatchdog", () => {
     expect(status.checks).toHaveLength(ENDPOINT_SPECS.length + MANIFEST_SPECS.length);
     expect(status.tlsCerts).toHaveLength(TLS_HOSTS.length);
     expect(status.countdowns.map((c) => c.id)).toEqual(["tldraw", "cert", "cvm"]);
-    expect(status.countdowns[0]?.daysRemaining).toBe(12); // 2026-11-27 -> 2026-12-08
-    expect(status.countdowns[0]?.level).toBe("warn");
+    expect(status.countdowns[0]?.daysRemaining).toBe(79); // 2026-11-27 -> 2027-02-13
+    expect(status.countdowns[0]?.level).toBe("ok");
 
     const diskJson = JSON.parse(readFileSync(statusPath, "utf8")) as WatchdogStatusDocument;
     expect(diskJson.overall).toBe("ok");

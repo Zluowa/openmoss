@@ -855,6 +855,12 @@ const CODEX_INITIALIZE_TIMEOUT_MS = 90_000;
  */
 export const CODEX_THREAD_OPEN_TIMEOUT_MS = 90_000;
 /**
+ * `turn/start` and `turn/steer` carry attachments or wait behind an active
+ * turn event flush, so give them a dedicated 45s RPC budget instead of the
+ * generic 20s timeout while leaving 3-arg call sites unchanged.
+ */
+export const CODEX_TURN_REQUEST_TIMEOUT_MS = 45_000;
+/**
  * Requests a session start can do without: the Moss skills root, the account's
  * plan, the connector name check and the one-time image skill upgrade. Each has
  * a quiet fallback, so a Codex slow to answer them (a large home on a busy disk)
@@ -4736,8 +4742,22 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
           expectedTurnId = actualTurnId;
           continue;
         }
+        if (
+          attempt < MAX_STEER_DRIFT_RETRIES &&
+          context.session.status === "running" &&
+          context.session.activeTurnId !== undefined &&
+          context.session.activeTurnId !== expectedTurnId
+        ) {
+          expectedTurnId = context.session.activeTurnId;
+          continue;
+        }
         if (isCodexNoActiveTurnSteerError(error)) {
           this.clearStaleActiveTurnOnSteerMiss(context, expectedTurnId);
+          throw error;
+        }
+        if (context.session.status !== "running" || context.session.activeTurnId === undefined) {
+          this.clearStaleActiveTurnOnSteerMiss(context, expectedTurnId);
+          throw new Error("No active turn to steer (turn already ended).", { cause: error });
         }
         throw error;
       }
@@ -8781,10 +8801,13 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     context: CodexSessionContext,
     method: string,
     params: unknown,
-    timeoutMs = 20_000,
+    timeoutMs?: number,
   ): Promise<TResponse> {
     const id = context.nextRequestId;
     context.nextRequestId += 1;
+    const resolvedTimeoutMs =
+      timeoutMs ??
+      (method === "turn/start" || method === "turn/steer" ? CODEX_TURN_REQUEST_TIMEOUT_MS : 20_000);
 
     // The registry owns the pending map and the timeout; upstream's idle-timer kick
     // still has to happen on every settled request, success or failure.
@@ -8794,7 +8817,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         method,
         params,
         (message) => this.writeMessage(context, message),
-        timeoutMs,
+        resolvedTimeoutMs,
       )
       .finally(() => {
         this.restartDiscoverySessionIdleTimer(context);
@@ -9997,11 +10020,14 @@ const CODEX_STEER_ACTUAL_TURN_ID_PATTERNS: ReadonlyArray<RegExp> = [
 
 const CODEX_STEER_NO_ACTIVE_TURN_PATTERNS: ReadonlyArray<RegExp> = [
   /\bno active turn\b/i,
-  /\bno turn in progress\b/i,
+  /\bno turn (?:in progress|running|to steer|found)\b/i,
+  /\bturn not found\b/i,
+  /\bthread (?:has no active turn|is not running)\b/i,
   /\bactive turn (?:has )?already (?:ended|completed|finished)\b/i,
   /\bturn (?:has )?already (?:ended|completed|finished)\b/i,
   /\bturn is not (?:active|running)\b/i,
   /\bcannot steer\b.*\bnot running\b/i,
+  /\bexpected[ _-]?turn[ _-]?id\b.*\b(?:mismatch|does not match|not active|not found)\b/i,
 ];
 
 /**

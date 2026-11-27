@@ -4726,10 +4726,65 @@ describe("steerTurn", () => {
       extractCodexActiveTurnIdFromSteerError(new Error("active turn is turn_from_text.")),
     ).toBe("turn_from_text");
     expect(isCodexNoActiveTurnSteerError(new Error("no active turn to steer"))).toBe(true);
+    expect(isCodexNoActiveTurnSteerError(new Error("no turn found"))).toBe(true);
+    expect(isCodexNoActiveTurnSteerError(new Error("turn not found"))).toBe(true);
+    expect(isCodexNoActiveTurnSteerError(new Error("thread has no active turn"))).toBe(true);
+    expect(
+      isCodexNoActiveTurnSteerError(new Error("expectedTurnId mismatch without actual id")),
+    ).toBe(true);
     expect(isCodexNoActiveTurnSteerError(new Error("active turn has already completed"))).toBe(
       true,
     );
     expect(isCodexNoActiveTurnSteerError(new Error("network connection reset"))).toBe(false);
+  });
+
+  it("retries turn/steer with updated session activeTurnId when turn/started drifted in flight", async () => {
+    const { manager, context, sendRequest } = createSendTurnHarness();
+    context.session.status = "running";
+    context.session.activeTurnId = "turn_1";
+    sendRequest
+      .mockImplementationOnce(async () => {
+        context.session.activeTurnId = "turn_2";
+        throw new Error("temporary steer race error");
+      })
+      .mockResolvedValueOnce({ turnId: "turn_2" });
+
+    const result = await manager.steerTurn({
+      threadId: asThreadId("thread_1"),
+      input: "Steer across in-flight turn drift",
+    });
+
+    expect(result.turnId).toBe("turn_2");
+    expect(sendRequest).toHaveBeenCalledTimes(2);
+    expect(sendRequest).toHaveBeenNthCalledWith(1, context, "turn/steer", {
+      threadId: "thread_1",
+      input: [{ type: "text", text: "Steer across in-flight turn drift", text_elements: [] }],
+      expectedTurnId: "turn_1",
+    });
+    expect(sendRequest).toHaveBeenNthCalledWith(2, context, "turn/steer", {
+      threadId: "thread_1",
+      input: [{ type: "text", text: "Steer across in-flight turn drift", text_elements: [] }],
+      expectedTurnId: "turn_2",
+    });
+  });
+
+  it("normalizes non-matching errors to No active turn to steer when session already settled", async () => {
+    const { manager, context, sendRequest, updateSession } = createSendTurnHarness();
+    context.session.status = "running";
+    context.session.activeTurnId = "turn_1";
+    sendRequest.mockImplementationOnce(async () => {
+      context.session.status = "ready";
+      context.session.activeTurnId = undefined;
+      throw new Error("custom rpc error after turn completed");
+    });
+
+    await expect(
+      manager.steerTurn({
+        threadId: asThreadId("thread_1"),
+        input: "Steer after turn finished",
+      }),
+    ).rejects.toThrow("No active turn to steer (turn already ended).");
+    expect(updateSession).not.toHaveBeenCalled();
   });
 });
 

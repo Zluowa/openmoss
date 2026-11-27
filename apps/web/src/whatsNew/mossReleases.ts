@@ -28,13 +28,13 @@ export const MOSS_RELEASES: readonly MossRelease[] = [
     date: { zh: "11月27日", en: "Nov 27" },
     notes: {
       zh: [
-        "画布新增多人实时协作与 AI 批注升级，支持悬停预览、分步导览与工作坊倒计时",
+        "画布新增多人实时协作与 AI 批注升级，支持悬停预览与分步导览",
         "新增官方「Moss 使用手册」插件、首页快捷引导，并支持企业 API Key 独立连接应用",
         "桌面端与网页端全面性能优化：冷启动更快、交互更流畅、安装包更精简",
         "支持运行中实时引导对话、新版资料空间「苔」、Mossbot 像素小人及手动触发更新下载",
       ],
       en: [
-        "Added real-time multiplayer Canvas collaboration, hover previews, guided tours, and workshop timer",
+        "Added real-time multiplayer Canvas collaboration, hover previews, and guided tours",
         "Added official Moss Guide plugin, Home quick starters, and isolated Enterprise API Key app connections",
         "Major desktop and web performance pass: faster cold start, smoother UI, smaller installers",
         "Added live mid-run turn steering, redesigned Moss story Space, pixel Mossbots, and manual update downloads",
@@ -44,12 +44,12 @@ export const MOSS_RELEASES: readonly MossRelease[] = [
       {
         kind: "feat",
         zh: [
-          "画布支持多人实时协作同步、远端光标、AI 批注悬停预览、分步导览与工作坊倒计时",
+          "画布支持多人实时协作同步、远端光标、AI 批注悬停预览与分步导览",
           "内置可卸载官方插件「Moss 使用手册」与首页快捷引导，开放企业 API Key 按 Key 独立连接应用",
           "升级运行中实时引导对话（含 Antigravity 1.5+ 原生引导），并重做桌面与手机端定时任务页",
         ],
         en: [
-          "Added live multiplayer Canvas sync, remote cursors, AI offer hover previews, guided tours, and workshop timer",
+          "Added live multiplayer Canvas sync, remote cursors, AI offer hover previews, and guided tours",
           "Added official uninstallable Moss Guide plugin, Home quick starters, and per-key Enterprise API Key apps",
           "Upgraded live mid-run turn steering (including native Antigravity 1.5+) and redesigned scheduled tasks across desktop and mobile",
         ],

@@ -28,7 +28,7 @@ export const FIXED_EXPIRIES = {
   tldraw: {
     id: "tldraw",
     name: "画布商用授权（tldraw）",
-    expiresAt: "2026-12-08",
+    expiresAt: "2027-02-13",
     hint: "到期前更换为正式商用授权码，避免画布弹出提示",
   },
   cvm: {
