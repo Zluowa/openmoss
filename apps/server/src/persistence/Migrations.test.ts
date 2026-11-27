@@ -100,10 +100,7 @@ it.effect("appends upstream cursor invalidation without reusing Moss migration 9
       170,
       "ProjectionThreadsPullRequestLinks",
     ]);
-    assert.deepStrictEqual(migrationEntries.at(-1)?.slice(0, 2), [
-      174,
-      "ProjectionThreadSessionSteering",
-    ]);
+    assert.deepStrictEqual(migrationEntries.at(-1)?.slice(0, 2), [175, "PageAppPinnedAndStarters"]);
     assert.equal(new Set(migrationEntries.map(([id]) => id)).size, migrationEntries.length);
   }),
 );

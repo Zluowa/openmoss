@@ -801,6 +801,8 @@ function createTopFrameDesktopBridge() {
       openInstalled: (input: unknown) =>
         ipcRenderer.invoke("desktop:page-apps-open-installed", input),
       uninstall: (input: unknown) => ipcRenderer.invoke("desktop:page-apps-uninstall", input),
+      setDesktopShortcut: (input: unknown) =>
+        ipcRenderer.invoke("desktop:page-apps-set-desktop-shortcut", input),
       showInFolder: (input: unknown) =>
         ipcRenderer.invoke("desktop:page-apps-show-in-folder", input),
       openPermissions: (input: unknown) =>

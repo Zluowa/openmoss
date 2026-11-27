@@ -244,9 +244,11 @@ describe("AppPageFrame Desktop Page Apps", () => {
       await expect.element(moreTrigger).toBeVisible();
       await expect.element(titleTrigger).toHaveTextContent("桌面计时器");
 
-      // Top-right bar has NO bordered "安装为应用" text capsule — only the `···` icon button while uninstalled.
+      // Top-right bar has NO bordered "安装为应用" text capsule — only annotate icon, comments split control, and `···` overflow while uninstalled.
       expect(page.getByTestId("page-app-desktop-install-btn").query()).toBeNull();
-      expect(actionsCluster.element().querySelectorAll("button").length).toBe(1);
+      expect(actionsCluster.element().querySelector("[data-browser-annotate]")).not.toBeNull();
+      expect(actionsCluster.element().querySelector("[data-page-comments-control]")).not.toBeNull();
+      expect(actionsCluster.element().querySelectorAll("button").length).toBe(4);
 
       const header = titleTrigger.element().closest("header")!;
       expect(header.getBoundingClientRect().height).toBeLessThanOrEqual(46);
@@ -301,10 +303,10 @@ describe("AppPageFrame Desktop Page Apps", () => {
         );
       });
 
-      // Once installed, top-right shows quiet PopOut icon button + `···` (2 icon buttons).
+      // Once installed, top-right shows annotate + comments split control + PopOut icon button + `···` (5 buttons).
       const openStandaloneBtn = page.getByTestId("page-app-open-standalone-btn");
       await expect.element(openStandaloneBtn).toBeVisible();
-      expect(actionsCluster.element().querySelectorAll("button").length).toBe(2);
+      expect(actionsCluster.element().querySelectorAll("button").length).toBe(5);
 
       await userEvent.click(openStandaloneBtn);
       await vi.waitFor(() => {
@@ -538,7 +540,7 @@ describe("AppPageFrame Desktop Page Apps", () => {
       const frameEl = page.getByTestId("app-page-frame").element();
       const iframe = page.getByTitle("悬浮组件").element();
       expect(frameEl.getAttribute("data-page-app-transparent")).toBeNull();
-      expect(iframe.classList.contains("bg-white")).toBe(true);
+      expect(iframe.classList.contains("bg-[var(--color-background-surface)]")).toBe(true);
 
       mock.emitApiEvent({
         appId: APP_ID,
@@ -554,7 +556,7 @@ describe("AppPageFrame Desktop Page Apps", () => {
         expect(frameEl.getAttribute("data-page-app-transparent")).toBe("true");
         expect(frameEl.classList.contains("bg-transparent")).toBe(true);
         expect(iframe.classList.contains("bg-transparent")).toBe(true);
-        expect(iframe.classList.contains("bg-white")).toBe(false);
+        expect(iframe.classList.contains("bg-[var(--color-background-surface)]")).toBe(false);
       });
     } finally {
       await transparentScreen.unmount();

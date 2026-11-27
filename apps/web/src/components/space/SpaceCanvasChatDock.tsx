@@ -26,11 +26,14 @@ import { useHandleNewThread, type SpaceArtifactAssistantTarget } from "~/hooks/u
 import { createPastedTextDraft } from "~/lib/composerPastedText";
 import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 import {
+  ArrowUpIcon,
+  ChatBubbleIcon,
   CheckIcon,
   ChevronDownIcon,
   ExternalLinkIcon,
   LayoutRightIcon,
   Maximize2,
+  MinusIcon,
   MoreHorizontalIcon,
   PlusIcon,
   PopOutIcon,
@@ -40,6 +43,7 @@ import {
   StopFilledIcon,
   XIcon,
 } from "~/lib/icons";
+import { publishActiveCompanionDock } from "~/lib/pageAi/activeCompanionDock";
 import { artifactAssistantThreadKey, pageAssistantThreads } from "~/lib/pageAi/pageAssistantThread";
 import { cn } from "~/lib/utils";
 import { readDesktopBackendWsUrl } from "~/lib/transportLink";
@@ -65,10 +69,14 @@ import {
   CHAT_SURFACE_HEADER_HEIGHT_CLASS,
 } from "../chat/chatHeaderControls";
 import { ComposerPickerMenuPopup } from "../chat/ComposerPickerMenuPopup";
+import { COMPOSER_SURFACE_SHADOW_CLASS_NAME } from "../chat/composerPickerStyles";
 import { RightDock } from "../chat/RightDock";
 import { SidechatDockPane } from "../chat/SidechatDockPane";
+import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
+import { StatusDot } from "../ui/status-chip";
+import { PageDictationButton } from "../pages/chrome/PageDictationButton";
 import {
   Dialog,
   DialogDescription,
@@ -86,6 +94,7 @@ import {
   type SpaceCanvasDockController,
   type SpaceCanvasDockRequest,
   type SpaceCanvasDockState,
+  type SpaceCanvasFloatingLauncherMode,
   type SpaceCanvasHostInsets,
   type SpaceCanvasSelectionContext,
 } from "./spaceCanvasDockContract";
@@ -295,6 +304,7 @@ export function SpaceCanvasChatDockHost(props: {
   readonly containerRef: { readonly current: HTMLElement | null };
   readonly topBarHeightPx?: number;
   readonly keepItemOpen?: boolean;
+  readonly floatingLauncher?: SpaceCanvasFloatingLauncherMode;
   readonly children: (dock: SpaceCanvasDockController) => ReactNode;
 }) {
   const artifact = props.artifact;
@@ -310,7 +320,12 @@ export function SpaceCanvasChatDockHost(props: {
   const openChatThreadPage = useTerminalStateStore((store) => store.openChatThreadPage);
 
   // Closed until asked (as in Claude): an opened item never brings the panel up by itself.
+  const floatingLauncher = props.floatingLauncher ?? "none";
   const [dockState, setDockStateRaw] = useState<SpaceCanvasDockState>("collapsed");
+  const [launcherMode, setLauncherMode] = useState<"minimized" | "compact">(() =>
+    floatingLauncher === "minimized" ? "minimized" : "compact",
+  );
+  const [compactDraft, setCompactDraft] = useState("");
   const [selection, setSelectionRaw] = useState<SpaceCanvasSelectionContext | null>(null);
   const selectionRef = useRef<SpaceCanvasSelectionContext | null>(null);
   selectionRef.current = selection;
@@ -385,11 +400,16 @@ export function SpaceCanvasChatDockHost(props: {
     [artifactKey],
   );
 
+  useEffect(() => {
+    setLauncherMode(floatingLauncher === "minimized" ? "minimized" : "compact");
+  }, [artifactKey, floatingLauncher]);
+
   const prevArtifactKeyRef = useRef(artifactKey);
   // Clear selection/failure when switching artifacts cleanly while keeping mounted portal intact.
   useEffect(() => {
     if (prevArtifactKeyRef.current === artifactKey) return;
     prevArtifactKeyRef.current = artifactKey;
+    setCompactDraft("");
     setSelectionRaw((prev) =>
       prev &&
       artifactRef.current &&
@@ -614,6 +634,38 @@ export function SpaceCanvasChatDockHost(props: {
     }
   }, []);
 
+  const hostSymbolRef = useRef<symbol | null>(null);
+  hostSymbolRef.current ??= Symbol("space-canvas-dock-host");
+  useEffect(() => {
+    const hostSymbol = hostSymbolRef.current!;
+    if (!artifact || !artifactKey) {
+      publishActiveCompanionDock(hostSymbol, null);
+      return;
+    }
+    publishActiveCompanionDock(hostSymbol, {
+      artifactKind: artifact.kind,
+      itemId: artifact.itemId,
+      artifactKey,
+      threadId: activeTabThreadId ?? primaryThreadId,
+      dockState,
+      launcherMode,
+      busy,
+      hasUnread: hasUnreadDot,
+    });
+    return () => {
+      publishActiveCompanionDock(hostSymbol, null);
+    };
+  }, [
+    activeTabThreadId,
+    artifact,
+    artifactKey,
+    busy,
+    dockState,
+    hasUnreadDot,
+    launcherMode,
+    primaryThreadId,
+  ]);
+
   // Esc closes the floating panel, as it closes any popover, when the key is not someone else's:
   // focus is in the panel, on the 问 Moss toggle, or nowhere in particular.
   useEffect(() => {
@@ -709,12 +761,14 @@ export function SpaceCanvasChatDockHost(props: {
     }
   }, [activeTabId, dockState, dockedSlotEl, parkedSlotEl, pipSlotEl, portalHostEl]);
 
-  // A closed panel leaves nothing behind unless there is something to report: Moss is working,
-  // a request failed, or an answer came while the panel was closed.
+  // A closed panel leaves nothing behind unless there is something to report or a floating launcher is active.
+  const showFloatingLauncher = Boolean(
+    artifact && dockState === "collapsed" && floatingLauncher !== "none",
+  );
   const showCollapsedPill = useMemo(() => {
-    if (!artifact || dockState !== "collapsed") return false;
+    if (!artifact || dockState !== "collapsed" || floatingLauncher !== "none") return false;
     return busy || failureRecovery !== null || hasUnreadDot;
-  }, [artifact, busy, dockState, failureRecovery, hasUnreadDot]);
+  }, [artifact, busy, dockState, failureRecovery, floatingLauncher, hasUnreadDot]);
 
   // Host insets listeners (Canvas/Docs/Sheets/Design bottom pills stay clear of the Dock).
   const insetListenersRef = useRef(new Set<(insets: SpaceCanvasHostInsets) => void>());
@@ -1409,7 +1463,10 @@ export function SpaceCanvasChatDockHost(props: {
         className="pointer-events-none fixed bottom-0 right-0 -z-10 h-[400px] w-[360px] overflow-hidden opacity-0"
       />
 
-      <div className="relative flex h-full min-h-0 min-w-0 flex-1 overflow-hidden">
+      <div
+        className="relative flex h-full min-h-0 min-w-0 flex-1 overflow-hidden"
+        data-space-dock-thread-id={activeTabThreadId ?? primaryThreadId ?? undefined}
+      >
         <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
           {props.children(controller)}
 
@@ -1474,6 +1531,192 @@ export function SpaceCanvasChatDockHost(props: {
             </div>
           ) : null}
 
+          {/* State 1b/1c: Non-invasive ChatGPT-style bottom-right circular bubble or compact composer bar */}
+          {showFloatingLauncher && artifact ? (
+            launcherMode === "minimized" ? (
+              <div
+                data-space-canvas-dock="minimized"
+                data-space-dock-launcher="minimized"
+                className="pointer-events-auto absolute right-4 bottom-4 z-30"
+              >
+                <div className="relative">
+                  <IconButton
+                    size="icon-sm"
+                    variant="outline"
+                    label="展开 Moss 对话"
+                    data-space-dock-expand-bubble
+                    className="size-10 rounded-full border-[color:var(--color-border)] bg-popover text-foreground shadow-xl hover:bg-[var(--color-background-elevated-secondary)]"
+                    onClick={() => {
+                      if (primaryThreadId || busy || hasUnreadDot || failureRecovery !== null) {
+                        setState("pip");
+                      } else {
+                        setLauncherMode("compact");
+                      }
+                    }}
+                  >
+                    <ChatBubbleIcon className="size-4" />
+                  </IconButton>
+                  {busy || hasUnreadDot || failureRecovery !== null ? (
+                    <StatusDot
+                      aria-hidden="true"
+                      pulse={busy}
+                      className={cn(
+                        "pointer-events-none absolute top-0 right-0 ring-2 ring-popover",
+                        failureRecovery !== null ? "bg-destructive" : "bg-primary",
+                      )}
+                    />
+                  ) : null}
+                </div>
+              </div>
+            ) : (
+              <div
+                data-space-canvas-dock="compact"
+                data-space-dock-launcher="compact"
+                className={cn(
+                  "pointer-events-auto absolute right-4 bottom-4 z-30 flex w-[360px] max-w-[calc(100%-32px)] flex-col overflow-hidden rounded-composer border border-[color:var(--color-border)] bg-popover text-foreground shadow-xl transition-[opacity,transform] duration-200 ease-out motion-reduce:transition-none",
+                  COMPOSER_SURFACE_SHADOW_CLASS_NAME,
+                )}
+              >
+                <div className="flex h-9 items-center justify-between gap-1 border-b border-[color:var(--app-surface-divider)] px-2">
+                  <div className="flex min-w-0 items-center gap-0.5">
+                    <IconButton
+                      size="icon-xs"
+                      variant="chrome"
+                      label="收起为气泡"
+                      data-space-dock-minimize
+                      onClick={() => setLauncherMode("minimized")}
+                    >
+                      <MinusIcon className="size-3.5" />
+                    </IconButton>
+                    <Button
+                      size="xs"
+                      variant="ghost"
+                      className="h-6 min-w-0 max-w-[200px] gap-1.5 px-1.5 text-ui-xs font-medium text-foreground"
+                      data-space-dock-compact-title
+                      onClick={() => setState("pip")}
+                    >
+                      <span className="truncate">
+                        {primaryThreadId ? artifact.title : "新聊天"}
+                      </span>
+                      {timerBadge ? (
+                        <Badge
+                          size="sm"
+                          variant="default"
+                          className="shrink-0 tabular-nums text-muted-foreground"
+                        >
+                          {timerBadge}
+                        </Badge>
+                      ) : null}
+                    </Button>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-0.5">
+                    <IconButton
+                      size="icon-xs"
+                      variant="chrome"
+                      label="展开对话窗口"
+                      onClick={() => setState("pip")}
+                    >
+                      <Maximize2 className="size-3.5" />
+                    </IconButton>
+                    <IconButton
+                      size="icon-xs"
+                      variant="chrome"
+                      label="停靠到右侧分栏"
+                      onClick={() => setState("docked")}
+                    >
+                      <LayoutRightIcon className="size-3.5" />
+                    </IconButton>
+                  </div>
+                </div>
+                {selectionSummary ? (
+                  <div
+                    data-space-dock-compact-selection
+                    className="flex items-center justify-between gap-2 border-b border-[color:var(--app-surface-divider)] bg-[color-mix(in_srgb,var(--foreground)_3.5%,transparent)] px-3 py-1 text-ui-xs text-muted-foreground dark:bg-[color-mix(in_srgb,var(--foreground)_6%,transparent)]"
+                  >
+                    <span className="min-w-0 truncate">已附带：{selectionSummary}</span>
+                    <IconButton
+                      size="icon-xs"
+                      variant="ghost"
+                      label="清除上下文选区"
+                      onClick={() => setSelection(null)}
+                    >
+                      <XIcon className="size-3" />
+                    </IconButton>
+                  </div>
+                ) : null}
+                <div className="flex items-end gap-1.5 px-2 py-2">
+                  <IconButton
+                    size="icon-xs"
+                    variant="ghost"
+                    label="新建对话"
+                    className="h-7 w-7 shrink-0 rounded-full"
+                    onClick={() => {
+                      setState("pip");
+                      void handleCreateFreshBoundThread();
+                    }}
+                  >
+                    <PlusIcon className="size-3.5" />
+                  </IconButton>
+                  <textarea
+                    value={compactDraft}
+                    onChange={(event) => setCompactDraft(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (isImeComposingKeyEvent(event)) return;
+                      if (event.key === "Enter" && !event.shiftKey) {
+                        event.preventDefault();
+                        const trimmed = compactDraft.trim();
+                        if (!trimmed || askSubmitting) return;
+                        setCompactDraft("");
+                        void ask({
+                          prompt: trimmed,
+                          selection,
+                          preferredState: "pip",
+                          origin: "bottom-pill",
+                        });
+                      }
+                    }}
+                    rows={1}
+                    placeholder="随心输入"
+                    aria-label="随心输入"
+                    data-space-dock-compact-input
+                    style={{ fontFamily: "var(--font-ui-family)" }}
+                    className="max-h-24 min-h-7 min-w-0 flex-1 resize-none bg-transparent py-1 text-ui text-foreground outline-none [field-sizing:content] placeholder:text-muted-foreground"
+                  />
+                  <div className="flex shrink-0 items-center gap-1">
+                    <PageDictationButton
+                      pageKey={artifactKey ?? "app"}
+                      disabled={false}
+                      onText={(spoken) =>
+                        setCompactDraft((prev) => (prev ? `${prev} ${spoken}` : spoken))
+                      }
+                    />
+                    <IconButton
+                      size="icon-xs"
+                      variant="default"
+                      label="发送给 Moss"
+                      className="size-7 shrink-0 rounded-full"
+                      disabled={!compactDraft.trim() || askSubmitting}
+                      data-space-dock-compact-send
+                      onClick={() => {
+                        const trimmed = compactDraft.trim();
+                        if (!trimmed || askSubmitting) return;
+                        setCompactDraft("");
+                        void ask({
+                          prompt: trimmed,
+                          selection,
+                          preferredState: "pip",
+                          origin: "bottom-pill",
+                        });
+                      }}
+                    >
+                      <ArrowUpIcon className="size-3.5" />
+                    </IconButton>
+                  </div>
+                </div>
+              </div>
+            )
+          ) : null}
+
           {/* State 2: Floating PiP (`560x640` default, 8-edge resize, header drag + right snap zone) */}
           {artifact && dockState === "pip" ? (
             <aside
@@ -1485,7 +1728,7 @@ export function SpaceCanvasChatDockHost(props: {
                 width: `${pipRect.width}px`,
                 height: `${pipRect.height}px`,
               }}
-              className="pointer-events-auto absolute z-40 flex flex-col overflow-hidden rounded-card border border-border bg-popover text-foreground shadow-2xl transition-[box-shadow] duration-300 ease-out motion-reduce:transition-none"
+              className="pointer-events-auto absolute z-40 flex flex-col overflow-hidden rounded-panel border border-[color:var(--color-border)] bg-popover text-popover-foreground shadow-2xl transition-[box-shadow] duration-300 ease-out motion-reduce:transition-none"
             >
               {/* Edge / corner resize hit zones */}
               <div
@@ -1533,9 +1776,19 @@ export function SpaceCanvasChatDockHost(props: {
               >
                 <div className="flex min-w-0 items-center gap-1">{threadSwitcherMenu}</div>
                 <div className="flex shrink-0 items-center gap-1">
+                  {floatingLauncher !== "none" ? (
+                    <IconButton
+                      size="icon-xs"
+                      variant="chrome"
+                      label="新建对话"
+                      onClick={() => void handleCreateFreshBoundThread()}
+                    >
+                      <RotateCcwIcon className="size-3.5" />
+                    </IconButton>
+                  ) : null}
                   <IconButton
                     size="icon-xs"
-                    variant="ghost"
+                    variant="chrome"
                     label="停靠到右侧分栏"
                     tooltip="停靠到右侧分栏"
                     onClick={() => setState("docked")}
@@ -1544,7 +1797,7 @@ export function SpaceCanvasChatDockHost(props: {
                   </IconButton>
                   <Menu modal={false}>
                     <MenuTrigger
-                      render={<Button size="icon-xs" variant="ghost" aria-label="更多操作" />}
+                      render={<Button size="icon-xs" variant="chrome" aria-label="更多操作" />}
                     >
                       <MoreHorizontalIcon className="size-3.5" />
                     </MenuTrigger>
@@ -1561,13 +1814,20 @@ export function SpaceCanvasChatDockHost(props: {
                   </Menu>
                   <IconButton
                     size="icon-xs"
-                    variant="ghost"
-                    label="关闭"
-                    tooltip="关闭"
+                    variant="chrome"
+                    label={floatingLauncher !== "none" ? "收起对话" : "关闭"}
+                    tooltip={floatingLauncher === "none" ? "关闭" : undefined}
                     data-space-dock-close
-                    onClick={() => setState("collapsed")}
+                    onClick={() => {
+                      if (floatingLauncher !== "none") setLauncherMode("minimized");
+                      setState("collapsed");
+                    }}
                   >
-                    <XIcon className="size-3.5" />
+                    {floatingLauncher !== "none" ? (
+                      <MinusIcon className="size-3.5" />
+                    ) : (
+                      <XIcon className="size-3.5" />
+                    )}
                   </IconButton>
                 </div>
               </div>

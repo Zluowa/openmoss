@@ -14,6 +14,7 @@ import {
   removeOsArtifacts,
   resolvePageAppShortcutDirectories,
   sanitizePageAppInstallName,
+  setDesktopShortcutArtifact,
   stripWorkingDirFromLnkBuffer,
   verifyLnkArgumentsUtf16Le,
 } from "./osInstall";
@@ -201,5 +202,79 @@ describe("osInstall", () => {
     );
     removeOsArtifacts({ shortcutPaths: macResult.shortcutPaths, bundlePath: macResult.bundlePath });
     expect(FS.existsSync(macResult.bundlePath!)).toBe(false);
+  });
+
+  it("writes macOS upgrade-safe open -b launcher + LSUIElement and toggles independent desktop shortcuts", () => {
+    const override = createTempDir();
+    const installId = "fedcba9876543210fedcba9876543210";
+    const env = {
+      [PAGE_APP_SHORTCUT_DIR_ENV]: override,
+      MOSS_DISABLE_SHORTCUT_ICON_SYNC: "1",
+    };
+
+    const macDesktop = installOsArtifacts({
+      installId,
+      name: "静读",
+      description: "静读",
+      executablePath: "/Applications/Moss.app/Contents/MacOS/Moss",
+      hostBundleId: "com.moss.desktop",
+      iconPath: Path.join(override, "reader.png"),
+      png256: Buffer.from("png"),
+      places: ["applications", "desktop"],
+      platform: "darwin",
+      env,
+    });
+    expect(macDesktop.shortcutPaths).toHaveLength(2);
+    const plist = FS.readFileSync(
+      Path.join(macDesktop.bundlePath!, "Contents", "Info.plist"),
+      "utf8",
+    );
+    expect(plist).toContain("<key>LSUIElement</key>");
+    expect(plist).toContain(`<string>${installId}</string>`);
+    const launcher = FS.readFileSync(
+      Path.join(macDesktop.bundlePath!, "Contents", "MacOS", "launcher"),
+      "utf8",
+    );
+    expect(launcher).toContain(
+      `/usr/bin/open -b 'com.moss.desktop' --args '--moss-app=${installId}'`,
+    );
+
+    const entry: InstalledDesktopPageApp = {
+      installId,
+      appId: "reader" as InstalledDesktopPageApp["appId"],
+      name: "静读",
+      revision: 1,
+      places: ["start-menu"],
+      shortcutPaths: [],
+      installedAt: "2026-11-26T00:00:00.000Z",
+    };
+    const enabled = setDesktopShortcutArtifact({
+      entry,
+      enabled: true,
+      executablePath: Path.join(override, "Moss.exe"),
+      platform: "win32",
+      env,
+      ops: {
+        writeWindowsShortcut: (lnkPath, opts) => {
+          FS.writeFileSync(lnkPath, buildSyntheticShllink({ argumentsText: opts.args }));
+          return true;
+        },
+      },
+    });
+    expect(enabled.desktopShortcutEnabled).toBe(true);
+    expect(enabled.places).toContain("desktop");
+    expect(enabled.shortcutPaths).toHaveLength(1);
+    expect(FS.existsSync(enabled.shortcutPaths[0]!)).toBe(true);
+
+    const disabled = setDesktopShortcutArtifact({
+      entry: { ...entry, places: enabled.places, shortcutPaths: enabled.shortcutPaths },
+      enabled: false,
+      executablePath: Path.join(override, "Moss.exe"),
+      platform: "win32",
+      env,
+    });
+    expect(disabled.desktopShortcutEnabled).toBe(false);
+    expect(disabled.places).not.toContain("desktop");
+    expect(FS.existsSync(enabled.shortcutPaths[0]!)).toBe(false);
   });
 });

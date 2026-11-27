@@ -318,12 +318,16 @@ export const pageAppsApiRouteLayer = HttpRouter.add(
     switch (op) {
       case "list":
         return yield* respond(service.list(body as never, LOCAL_PRINCIPAL));
+      case "list-published":
+        return yield* respond(service.listPublished(body as never, LOCAL_PRINCIPAL));
       case "read":
         return yield* respond(service.read(body as never, LOCAL_PRINCIPAL));
       case "versions":
         return yield* respond(service.versions(body as never, LOCAL_PRINCIPAL));
       case "mutate":
         return ownerOnly ?? (yield* respond(service.mutate(body as never, LOCAL_PRINCIPAL)));
+      case "generate-cover":
+        return ownerOnly ?? (yield* respond(service.generateCover(body as never, LOCAL_PRINCIPAL)));
       case "consent":
         return yield* respond(service.consent(body as never, viewer));
       case "call":

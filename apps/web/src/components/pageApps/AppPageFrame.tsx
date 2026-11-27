@@ -15,6 +15,8 @@ import type {
   PageAppsOpenFrameResult,
   PageAppShellMessage,
   PageAppStoredConsent,
+  PageAppVersion,
+  ThreadId,
 } from "@moss/contracts";
 import type {
   PageAppConfirmRequest,
@@ -22,8 +24,13 @@ import type {
 } from "@moss/shared/pageAppCapabilityPlugin";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { BrowserAnnotationButton } from "~/components/BrowserPanel";
 import { ComposerPickerMenuPopup } from "~/components/chat/ComposerPickerMenuPopup";
+import { PageCommentsLayer } from "~/components/chat/pageComments/PageComments";
+import { MarkupCanvas } from "~/components/markup/MarkupCanvas";
+import { MarkupToolbar } from "~/components/markup/MarkupToolbar";
 import { RouteSurfaceHeader } from "~/components/RouteSurface";
+import type { SpaceCanvasDockController } from "~/components/space/spaceCanvasDockContract";
 import { SpaceInlineRename } from "~/components/space/SpaceInlineRename";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
@@ -39,13 +46,21 @@ import {
 } from "~/components/ui/dialog";
 import { IconButton } from "~/components/ui/icon-button";
 import { Menu, MenuItem, MenuSeparator, MenuTrigger } from "~/components/ui/menu";
+import { StatusDot } from "~/components/ui/status-chip";
+import { useComposerDraftStore } from "~/composerDraftStore";
+import { createPastedTextDraft } from "~/lib/composerPastedText";
 import {
+  AppsIcon,
+  CheckIcon,
   ChevronDownIcon,
   DownloadIcon,
   FolderOpenIcon,
+  HistoryIcon,
   LockIcon,
   MoreHorizontalIcon,
+  PageCommentIcon,
   PencilIcon,
+  PinIcon,
   PopOutIcon,
   RefreshCwIcon,
   SlidersIcon,
@@ -58,8 +73,10 @@ import {
 } from "~/lib/icons";
 import { cn } from "~/lib/utils";
 import { useTranslation } from "~/localization";
+import { newPageCommentId, usePageComments, usePageCommentsStore } from "~/pageCommentsStore";
+import { useThreadSendRequestStore } from "~/threadSendRequestStore";
 
-import { PageAppBroker, type PageAppConsentPrompt } from "./broker";
+import { PageAppBroker, type PageAppConsentPrompt, type PageAppFrameSelection } from "./broker";
 import { PAGE_APP_SHELL_PLUGINS } from "./capabilities";
 import {
   getDesktopNativePane,
@@ -67,8 +84,11 @@ import {
   readDeclaredDesktopPermissions,
   readTransparentFromWindowPayload,
 } from "./capabilities/desktop";
+import { openPageAppCommentComposer, PageAppSelectionBubble } from "./PageAppCommentComposer";
+import { generateAndSavePageAppCover } from "./pageAppCover";
 import { pageAppsClient } from "./pageAppsClient";
 import { createPageAppThumbnailCapture } from "./pageAppThumbnailCapture";
+import { usePageAppMarkup } from "./usePageAppMarkup";
 
 export interface AppPageFrameProps {
   readonly appPageId: string;
@@ -84,6 +104,8 @@ export interface AppPageFrameProps {
   readonly standalone?: boolean;
   readonly chrome?: "default" | "none";
   readonly transparent?: boolean;
+  readonly dock?: SpaceCanvasDockController | null | undefined;
+  readonly hostThreadId?: ThreadId | null | undefined;
   readonly onTitleChange?: ((title: string) => void) | undefined;
   readonly onCloseTab?: (() => void) | undefined;
   readonly onDeleted?: (() => void) | undefined;
@@ -189,6 +211,8 @@ export function AppPageFrame({
   standalone = false,
   chrome,
   transparent = false,
+  dock = null,
+  hostThreadId = null,
   onTitleChange,
   onCloseTab,
   onDeleted,
@@ -227,8 +251,23 @@ export function AppPageFrame({
   const installingDesktop = installingAppId === appPageId;
   const [renaming, setRenaming] = useState(false);
   const [attributionDismissed, setAttributionDismissed] = useState(false);
+  const [frameSelection, setFrameSelection] = useState<PageAppFrameSelection | null>(null);
+  const [hasTopHeading, setHasTopHeading] = useState(false);
+  const [versions, setVersions] = useState<readonly PageAppVersion[]>([]);
+  const [pinningRevision, setPinningRevision] = useState(false);
+  const [generatingCover, setGeneratingCover] = useState(false);
+  const [loadedFrameGen, setLoadedFrameGen] = useState(0);
+  const [commentMode, setCommentMode] = useState(false);
+  const [commentsPanelOpen, setCommentsPanelOpen] = useState(false);
+  const [commentMarkersVisible, setCommentMarkersVisible] = useState(true);
+  const [commentsMenuOpen, setCommentsMenuOpen] = useState(false);
+  const frameBodyRef = useRef<HTMLDivElement | null>(null);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const brokerRef = useRef<PageAppBroker | null>(null);
+  const dockRef = useRef(dock);
+  dockRef.current = dock;
+  const hostThreadIdRef = useRef(hostThreadId);
+  hostThreadIdRef.current = hostThreadId;
   const capturedFrameKey = useRef<string | null>(null);
   const appPageIdRef = useRef(appPageId);
   appPageIdRef.current = appPageId;
@@ -245,7 +284,14 @@ export function AppPageFrame({
   const menuOfferKeyRef = useRef<symbol>(Symbol("page-app-menu-offer"));
 
   useEffect(() => {
-    if (!frame || frame.app.id !== appPageId || !iframeRef.current) return;
+    if (
+      !frame ||
+      frame.app.id !== appPageId ||
+      !iframeRef.current ||
+      frame.app.thumbnail !== null
+    ) {
+      return;
+    }
     const key = `${appPageId}:${reloadKey}:${frame.frameUrl}`;
     if (loadedFrameKey !== key || capturedFrameKey.current === key) return;
     capturedFrameKey.current = key;
@@ -274,6 +320,9 @@ export function AppPageFrame({
     setFrame(null);
     setLoadedFrameKey(null);
     setFailure(null);
+    setFrameSelection(null);
+    setCommentMode(false);
+    setCommentsPanelOpen(false);
     pageAppsClient
       .openFrame({
         appId: appPageId as never,
@@ -321,6 +370,205 @@ export function AppPageFrame({
     [],
   );
 
+  const routeToMossConversation = useCallback(
+    async (input: {
+      readonly prompt?: string;
+      readonly prefillOnly?: boolean;
+      readonly quote?: string;
+      readonly label?: string;
+      readonly origin: "comment-mention" | "selection-bar" | "editor-bridge";
+    }) => {
+      const activeFrame = frameRef.current;
+      const activeDock = dockRef.current;
+      if (activeDock && activeFrame) {
+        const selectionContext = input.quote
+          ? {
+              kind: "app" as const,
+              itemId: activeFrame.app.id,
+              title: activeFrame.app.title,
+              quote: input.quote,
+              summary: input.label ?? input.quote.slice(0, 60),
+            }
+          : null;
+        await activeDock.ask({
+          ...(input.prompt ? { prompt: input.prompt } : {}),
+          prefillOnly: Boolean(input.prefillOnly),
+          autoRun: !input.prefillOnly && Boolean(input.prompt?.trim()),
+          keepItemOpen: true,
+          preferredState: "pip",
+          selection: selectionContext,
+          origin: input.origin,
+        });
+        return {
+          opened: true,
+          mode: "sidechat" as const,
+          ...(activeDock.activeThreadId ? { threadId: activeDock.activeThreadId } : {}),
+        };
+      }
+      const tid = hostThreadIdRef.current;
+      if (tid && activeFrame) {
+        const quoteLine = input.quote ? `「${input.quote}」\n` : "";
+        const formatted = input.prompt?.trim()
+          ? `关于应用「${activeFrame.app.title}」${quoteLine ? `中的${quoteLine}` : "："}${input.prompt.trim()}`
+          : "";
+        if (!input.prefillOnly && formatted) {
+          useThreadSendRequestStore.getState().request(tid, formatted);
+        } else {
+          const drafts = useComposerDraftStore.getState();
+          if (input.quote) {
+            drafts.addPastedTexts(tid, [
+              createPastedTextDraft({
+                id: `page-app:${activeFrame.app.id}:${Date.now()}`,
+                createdAt: new Date().toISOString(),
+                text: `引用自「${activeFrame.app.title}」：\n${input.quote}`,
+              }),
+            ]);
+          }
+          if (formatted) drafts.setPrompt(tid, formatted);
+        }
+        return { opened: true, mode: "sidechat" as const, threadId: tid };
+      }
+      return { opened: false, mode: "inline" as const };
+    },
+    [],
+  );
+
+  const openSelectionCommentComposer = useCallback(
+    (sel: PageAppFrameSelection) => {
+      const activeFrame = frameRef.current;
+      const bodyEl = frameBodyRef.current;
+      if (!activeFrame || !bodyEl) return;
+      const box = bodyEl.getBoundingClientRect();
+      const target = {
+        left: box.left + sel.rect.x,
+        top: box.top + sel.rect.y,
+        width: sel.rect.width,
+        height: sel.rect.height,
+      };
+      const anchor = {
+        target: sel.anchor?.target || "selection",
+        label: sel.anchor?.label || sel.text.slice(0, 48),
+        x:
+          box.width > 0 ? Math.min(1, Math.max(0, (sel.rect.x + sel.rect.width) / box.width)) : 0.5,
+        y: box.height > 0 ? Math.min(1, Math.max(0, sel.rect.y / box.height)) : 0.5,
+        quote: sel.text,
+      };
+      const pageKey = `page-app:${activeFrame.app.id}`;
+      const canSendToMoss = Boolean(dockRef.current || hostThreadIdRef.current);
+      const controller = new AbortController();
+      void openPageAppCommentComposer({
+        pageTitle: activeFrame.app.title,
+        pageKey,
+        anchor,
+        target,
+        canSendToMoss,
+        defaultSendToAgent: canSendToMoss,
+        signal: controller.signal,
+        post: async (body, opts) => {
+          const now = new Date().toISOString();
+          const author = {
+            name: activeFrame.viewer.name || "我",
+            initials: (activeFrame.viewer.name || "我").slice(0, 1),
+          };
+          usePageCommentsStore.getState().addComment({
+            id: newPageCommentId(),
+            pageKey,
+            threadId: hostThreadIdRef.current ?? dockRef.current?.activeThreadId ?? "",
+            anchor: {
+              selector: anchor.target,
+              label: anchor.label,
+              text: sel.text,
+            },
+            author,
+            body,
+            createdAt: now,
+            sentToAgentAt: opts.sendToAgent ? now : null,
+            replies: [],
+            read: true,
+          });
+          if ("comments" in activeFrame.capabilities) {
+            void pageAppsClient
+              .call({
+                appId: activeFrame.app.id,
+                revision: activeFrame.revision,
+                capability: "comments",
+                method: "add",
+                args: { anchor, body },
+              })
+              .catch(() => undefined);
+          }
+          if (opts.sendToAgent) {
+            await routeToMossConversation({
+              prompt: `关于「${sel.text}」：${body}`,
+              quote: sel.text,
+              label: anchor.label,
+              origin: "comment-mention",
+            });
+          }
+          return true;
+        },
+      });
+    },
+    [routeToMossConversation],
+  );
+
+  useEffect(() => {
+    setHasTopHeading(false);
+  }, [appPageId, reloadKey]);
+
+  const loadVersions = useCallback(async (id: string) => {
+    if (typeof pageAppsClient.versions !== "function") return;
+    try {
+      const result = await pageAppsClient.versions({ appId: id as PageAppId, limit: 20 });
+      if (appPageIdRef.current === id) {
+        setVersions(result.versions);
+      }
+    } catch {
+      // Versions remain best-effort.
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!frame || mode !== "full" || !frame.viewer.isOwner) {
+      setVersions([]);
+      return;
+    }
+    void loadVersions(frame.app.id);
+  }, [frame?.app.id, frame?.app.revision, frame?.viewer.isOwner, loadVersions, mode]);
+
+  const commentsAvailable = mode === "full" && !isStandalone && !isTransparent;
+  const activeCommentsThreadId = hostThreadId ?? dock?.activeThreadId ?? "";
+  const commentsPageKey = frame ? `page-app:${frame.app.id}` : "";
+  const pageComments = usePageComments(commentsPageKey);
+  const hasUnreadComments = commentsPageKey !== "" && pageComments.some((comment) => !comment.read);
+
+  const markup = usePageAppMarkup({
+    enabled: mode === "full" && !isStandalone && !isTransparent && frame !== null,
+    appId: frame?.app.id ?? appPageId,
+    appTitle: frame?.app.title ?? t("pageApps.frame.untitled"),
+    revision: frame?.revision ?? 1,
+    frameOrigin: frame?.frameOrigin ?? "null",
+    iframeRef,
+    frameBodyRef,
+    brokerRef,
+    threadId: (hostThreadId ?? dock?.activeThreadId ?? null) as ThreadId | null,
+    onOpen: () => {
+      setCommentMode(false);
+      setCommentsPanelOpen(false);
+      setFrameSelection(null);
+    },
+    onFallbackRoute: ({ quote, label }) => {
+      void routeToMossConversation({
+        prefillOnly: true,
+        ...(quote ? { quote } : {}),
+        ...(label ? { label } : {}),
+        origin: "selection-bar",
+      });
+    },
+  });
+  const markupRef = useRef(markup);
+  markupRef.current = markup;
+
   useEffect(() => {
     if (!frame) return;
     const broker = new PageAppBroker(
@@ -346,7 +594,32 @@ export function AppPageFrame({
         confirmChoice,
         frameElement: () => iframeRef.current,
         openPermissions,
+        onOpenSidechat: (input) =>
+          routeToMossConversation({
+            ...(input.prompt ? { prompt: input.prompt } : {}),
+            prefillOnly: !input.prompt,
+            ...(input.selectionText ? { quote: input.selectionText } : {}),
+            origin: "editor-bridge",
+          }),
+        onSelectionChange: (next) => {
+          setFrameSelection(next);
+          dockRef.current?.setSelection(
+            next
+              ? {
+                  kind: "app",
+                  itemId: frame.app.id,
+                  title: frame.app.title,
+                  anchorBlockId: next.anchor?.target ?? null,
+                  quote: next.text,
+                  summary: next.anchor?.label ?? next.text.slice(0, 60),
+                }
+              : null,
+          );
+        },
         onResize: (next) => setContentHeight(next),
+        onTopHeadingChange: (hasHeading) => setHasTopHeading(hasHeading),
+        onElementPicked: (element) => markupRef.current.handleElementPicked(element),
+        onPickEnded: () => markupRef.current.handlePickEnded(),
         onConsentChange: setConsent,
       },
     );
@@ -451,6 +724,71 @@ export function AppPageFrame({
       })
       .catch(() => false);
   }, [desktopBridge]);
+
+  const toggleDesktopShortcut = useCallback(async () => {
+    const activeFrame = frameRef.current;
+    const installed = installedAppRef.current;
+    if (!desktopBridge?.setDesktopShortcut || !activeFrame || !installed) return;
+    const enabled = !installed.places.includes("desktop");
+    const result = await desktopBridge
+      .setDesktopShortcut({
+        appId: activeFrame.app.id,
+        installId: installed.installId,
+        enabled,
+      })
+      .catch(() => null);
+    if (result?.updated && appPageIdRef.current === activeFrame.app.id) {
+      setInstalledApp(result.app);
+    }
+  }, [desktopBridge]);
+
+  const pinAppVersion = useCallback(
+    async (revision: number | null) => {
+      const activeFrame = frameRef.current;
+      if (!activeFrame || pinningRevision) return;
+      setPinningRevision(true);
+      try {
+        await pageAppsClient.mutate({
+          op: "pin-version",
+          requestId: crypto.randomUUID(),
+          appId: activeFrame.app.id,
+          expectedRevision: activeFrame.app.revision,
+          revision,
+        });
+        const nextFrame = await pageAppsClient.openFrame({
+          appId: activeFrame.app.id,
+          mode: mode as PageAppFrameMode,
+          parentOrigin: window.location.origin,
+        });
+        if (appPageIdRef.current === activeFrame.app.id) {
+          setFrame(nextFrame);
+          setConsent(nextFrame.consent);
+          setReloadKey((k) => k + 1);
+        }
+      } catch {
+        // Ignore transient version pin failure.
+      } finally {
+        setPinningRevision(false);
+      }
+    },
+    [mode, pinningRevision],
+  );
+
+  const generateAiCover = useCallback(async () => {
+    const activeFrame = frameRef.current;
+    if (!activeFrame || generatingCover) return;
+    setGeneratingCover(true);
+    try {
+      const updated = await generateAndSavePageAppCover(activeFrame.app);
+      setFrame((current) =>
+        current && current.app.id === updated.id ? { ...current, app: updated } : current,
+      );
+    } catch {
+      // Ignore transient AI cover failure from title menu.
+    } finally {
+      setGeneratingCover(false);
+    }
+  }, [generatingCover]);
 
   const uninstallDesktopApp = useCallback(async () => {
     const activeFrame = frameRef.current;
@@ -723,29 +1061,42 @@ export function AppPageFrame({
     }
   };
 
-  const renameApp = useCallback(async (nextTitle: string) => {
-    const activeFrame = frameRef.current;
-    if (!activeFrame) return;
-    const trimmed = nextTitle.trim().slice(0, 256);
-    if (!trimmed || trimmed === activeFrame.app.title) return;
-    try {
-      const result = await pageAppsClient.mutate({
-        op: "rename",
-        requestId: crypto.randomUUID(),
-        appId: activeFrame.app.id,
-        expectedRevision: activeFrame.app.revision,
-        title: trimmed,
-      });
-      setFrame((current) =>
-        current && current.app.id === activeFrame.app.id
-          ? { ...current, app: result.app }
-          : current,
-      );
-      onTitleChangeRef.current?.(result.app.title);
-    } catch {
-      // Leave current title untouched if rename fails.
-    }
-  }, []);
+  const renameApp = useCallback(
+    async (nextTitle: string) => {
+      const activeFrame = frameRef.current;
+      if (!activeFrame) return;
+      const trimmed = nextTitle.trim().slice(0, 256);
+      if (!trimmed || trimmed === activeFrame.app.title) return;
+      try {
+        const result = await pageAppsClient.mutate({
+          op: "rename",
+          requestId: crypto.randomUUID(),
+          appId: activeFrame.app.id,
+          expectedRevision: activeFrame.app.revision,
+          title: trimmed,
+        });
+        setFrame((current) =>
+          current && current.app.id === activeFrame.app.id
+            ? { ...current, app: result.app }
+            : current,
+        );
+        if (desktopBridge && installedAppRef.current) {
+          void desktopBridge
+            .syncAppVersion({
+              appId: result.app.id,
+              revision: result.app.revision,
+              title: result.app.title,
+              capabilities: result.app.capabilities,
+            })
+            .catch(() => undefined);
+        }
+        onTitleChangeRef.current?.(result.app.title);
+      } catch {
+        // Leave current title untouched if rename fails.
+      }
+    },
+    [desktopBridge],
+  );
 
   const exportHtml = useCallback(async () => {
     const activeFrame = frameRef.current;
@@ -780,11 +1131,20 @@ export function AppPageFrame({
         appId: activeFrame.app.id,
         expectedRevision: activeFrame.app.revision,
       });
+      if (desktopBridge && installedAppRef.current) {
+        await desktopBridge
+          .uninstall({
+            appId: activeFrame.app.id,
+            installId: installedAppRef.current.installId,
+            skipConfirm: true,
+          })
+          .catch(() => undefined);
+      }
       onDeleted();
     } catch {
       // Ignore trash failure gracefully.
     }
-  }, [onDeleted]);
+  }, [desktopBridge, onDeleted]);
 
   const frameHeight =
     mode === "embed"
@@ -824,7 +1184,7 @@ export function AppPageFrame({
 
   const headerContent = (
     <>
-      <div className="flex min-w-0 flex-1 items-center">
+      <div className="flex min-w-0 flex-1 items-center gap-1">
         {renaming && mode === "full" && frame ? (
           <div className="flex h-7 max-w-[min(22rem,100%)] min-w-0 items-center px-1">
             <SpaceInlineRename
@@ -861,7 +1221,7 @@ export function AppPageFrame({
             <ComposerPickerMenuPopup
               align="start"
               sideOffset={4}
-              className="w-60 min-w-60"
+              className="w-60 min-w-60 bg-popover! text-popover-foreground backdrop-blur-none!"
               data-testid="page-app-title-menu-popup"
             >
               {editedCaption ? (
@@ -898,6 +1258,18 @@ export function AppPageFrame({
                     <FolderOpenIcon aria-hidden className="size-4" />
                     <span>{t("pageApps.frame.showInFolder")}</span>
                   </MenuItem>
+                  {desktopBridge?.setDesktopShortcut ? (
+                    <MenuItem
+                      disabled={!frame}
+                      onClick={() => void toggleDesktopShortcut()}
+                      data-testid="page-app-title-menu-desktop-shortcut-item"
+                    >
+                      <AppsIcon aria-hidden className="size-4" />
+                      <span>
+                        {installedApp.places.includes("desktop") ? "从桌面移除" : "添加到桌面"}
+                      </span>
+                    </MenuItem>
+                  ) : null}
                 </>
               ) : null}
               <MenuSeparator />
@@ -924,6 +1296,24 @@ export function AppPageFrame({
                   <Badge size="sm" variant="default" className="ms-auto">
                     {t("pageApps.frame.betaBadge")}
                   </Badge>
+                </MenuItem>
+              ) : null}
+              {mode === "full" && frame?.viewer.isOwner ? (
+                <MenuItem
+                  disabled={!frame || generatingCover}
+                  onClick={() => void generateAiCover()}
+                  data-testid="page-app-title-menu-generate-cover-item"
+                >
+                  <SparklesIcon aria-hidden className="size-4" />
+                  <span>
+                    {locale.toLowerCase().startsWith("zh")
+                      ? generatingCover
+                        ? "正在生成封面…"
+                        : "AI 生成封面"
+                      : generatingCover
+                        ? "Generating cover…"
+                        : "Generate AI cover"}
+                  </span>
                 </MenuItem>
               ) : null}
               {mode === "full" ? (
@@ -993,8 +1383,187 @@ export function AppPageFrame({
             </ComposerPickerMenuPopup>
           </Menu>
         )}
+        {mode === "full" && frame && frame.viewer.isOwner && !renaming ? (
+          <Menu>
+            <MenuTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  className="h-7 shrink-0 gap-1 rounded-control px-2 text-ui-xs font-normal text-muted-foreground hover:bg-accent hover:text-foreground data-[popup-open]:bg-accent"
+                  disabled={pinningRevision}
+                  onClick={() => void loadVersions(frame.app.id)}
+                  data-testid="page-app-version-menu-trigger"
+                />
+              }
+            >
+              {frame.app.pinnedRevision != null ? (
+                <PinIcon aria-hidden className="size-3 text-[var(--color-text-accent)]" />
+              ) : (
+                <HistoryIcon aria-hidden className="size-3" />
+              )}
+              <span>v{frame.revision}</span>
+              {frame.app.pinnedRevision != null ? (
+                <Badge size="sm" variant="secondary" data-testid="page-app-version-pinned-badge">
+                  已锁定
+                </Badge>
+              ) : null}
+            </MenuTrigger>
+            <ComposerPickerMenuPopup
+              align="start"
+              sideOffset={4}
+              className="w-60 min-w-60 bg-popover! text-popover-foreground backdrop-blur-none!"
+              data-testid="page-app-version-menu-popup"
+            >
+              <MenuItem
+                disabled={pinningRevision}
+                onClick={() => void pinAppVersion(null)}
+                data-testid="page-app-version-follow-latest"
+              >
+                <CheckIcon
+                  aria-hidden
+                  className={cn(
+                    "size-4",
+                    frame.app.pinnedRevision == null ? "opacity-100" : "opacity-0",
+                  )}
+                />
+                <span className="flex-1 truncate">跟随最新 (v{frame.app.revision})</span>
+              </MenuItem>
+              {versions.length > 0 ? <MenuSeparator /> : null}
+              {versions.map((ver) => {
+                const isPinned = frame.app.pinnedRevision === ver.revision;
+                return (
+                  <MenuItem
+                    key={ver.revision}
+                    disabled={pinningRevision}
+                    onClick={() => void pinAppVersion(ver.revision)}
+                    data-testid={`page-app-version-item-${ver.revision}`}
+                  >
+                    <PinIcon
+                      aria-hidden
+                      className={cn(
+                        "size-4",
+                        isPinned ? "text-[var(--color-text-accent)] opacity-100" : "opacity-35",
+                      )}
+                    />
+                    <span className="flex-1 truncate">
+                      v{ver.revision} · {ver.title}
+                    </span>
+                    {isPinned ? (
+                      <Badge size="sm" variant="secondary">
+                        锁定
+                      </Badge>
+                    ) : null}
+                  </MenuItem>
+                );
+              })}
+            </ComposerPickerMenuPopup>
+          </Menu>
+        ) : null}
       </div>
       <div className="flex shrink-0 items-center gap-1" data-testid="page-app-header-actions">
+        {mode === "full" && !isStandalone && !isTransparent ? (
+          <>
+            <BrowserAnnotationButton controller={markup.buttonController} disabled={!frame} />
+            <div className="flex shrink-0 items-center" data-page-comments-control="">
+              <Button
+                aria-label={
+                  locale.toLowerCase().startsWith("zh")
+                    ? commentMode
+                      ? "退出评论模式"
+                      : "在页面上评论"
+                    : commentMode
+                      ? "Leave comment mode"
+                      : "Comment on the page"
+                }
+                aria-pressed={commentMode}
+                disabled={!frame}
+                size="icon-sm"
+                title={
+                  locale.toLowerCase().startsWith("zh")
+                    ? commentMode
+                      ? "退出评论模式 (Esc)"
+                      : "在页面上评论"
+                    : commentMode
+                      ? "Leave comment mode (Esc)"
+                      : "Comment on the page"
+                }
+                variant="ghost"
+                className={cn(
+                  "relative size-7 rounded-e-none text-foreground/80 hover:text-foreground",
+                  commentMode &&
+                    "bg-[color-mix(in_srgb,var(--color-text-accent)_13%,transparent)]! text-[var(--color-text-accent)]!",
+                )}
+                data-page-comments-toggle=""
+                onClick={() => {
+                  if (!commentMode && markup.open) {
+                    markup.close();
+                  }
+                  setFrameSelection(null);
+                  setCommentMode((on) => !on);
+                  setCommentsPanelOpen((open) => (commentMode ? false : open));
+                }}
+              >
+                <PageCommentIcon />
+                {hasUnreadComments ? (
+                  <StatusDot
+                    aria-hidden
+                    data-page-comments-unread=""
+                    className="absolute top-1 right-1 bg-[var(--color-text-accent)] ring-1 ring-background"
+                  />
+                ) : null}
+              </Button>
+              <Menu modal={false} open={commentsMenuOpen} onOpenChange={setCommentsMenuOpen}>
+                <MenuTrigger
+                  render={
+                    <Button
+                      aria-label={
+                        locale.toLowerCase().startsWith("zh") ? "评论选项" : "Comment options"
+                      }
+                      disabled={!frame}
+                      title={locale.toLowerCase().startsWith("zh") ? "评论选项" : "Comment options"}
+                      size="icon-sm"
+                      variant="ghost"
+                      className="h-7 w-4 rounded-s-none text-muted-foreground [&_[data-slot=central-icon]]:size-3"
+                    >
+                      <ChevronDownIcon />
+                    </Button>
+                  }
+                />
+                <ComposerPickerMenuPopup
+                  align="end"
+                  side="bottom"
+                  className="bg-popover! text-popover-foreground backdrop-blur-none!"
+                >
+                  <MenuItem
+                    data-page-comments-menu="all"
+                    onClick={() => setCommentsPanelOpen((open) => !open)}
+                  >
+                    {locale.toLowerCase().startsWith("zh")
+                      ? commentsPanelOpen
+                        ? "隐藏全部评论"
+                        : "全部评论"
+                      : commentsPanelOpen
+                        ? "Hide all comments"
+                        : "All comments"}
+                  </MenuItem>
+                  <MenuItem
+                    data-page-comments-menu="markers"
+                    onClick={() => setCommentMarkersVisible((visible) => !visible)}
+                  >
+                    {locale.toLowerCase().startsWith("zh")
+                      ? commentMarkersVisible
+                        ? "隐藏评论标记"
+                        : "显示评论标记"
+                      : commentMarkersVisible
+                        ? "Hide comment markers"
+                        : "Show comment markers"}
+                  </MenuItem>
+                </ComposerPickerMenuPopup>
+              </Menu>
+            </div>
+          </>
+        ) : null}
         {mode === "full" && desktopAvailable && installedApp ? (
           <IconButton
             variant="chrome"
@@ -1023,7 +1592,7 @@ export function AppPageFrame({
           />
           <ComposerPickerMenuPopup
             align="end"
-            className="w-56 min-w-56"
+            className="w-56 min-w-56 bg-popover! text-popover-foreground backdrop-blur-none!"
             data-testid="page-app-more-menu-popup"
           >
             {mode === "full" && desktopAvailable ? (
@@ -1068,6 +1637,18 @@ export function AppPageFrame({
                       <FolderOpenIcon aria-hidden className="size-4" />
                       <span>{t("pageApps.frame.showInFolder")}</span>
                     </MenuItem>
+                    {desktopBridge?.setDesktopShortcut ? (
+                      <MenuItem
+                        disabled={!frame}
+                        onClick={() => void toggleDesktopShortcut()}
+                        data-testid="page-app-more-desktop-shortcut-toggle"
+                      >
+                        <AppsIcon aria-hidden className="size-4" />
+                        <span>
+                          {installedApp.places.includes("desktop") ? "从桌面移除" : "添加到桌面"}
+                        </span>
+                      </MenuItem>
+                    ) : null}
                     <MenuItem
                       variant="destructive"
                       disabled={!frame}
@@ -1129,7 +1710,7 @@ export function AppPageFrame({
       ) : !isStandalone && mode !== "embed" ? (
         <header
           data-testid="page-app-dock-subheader"
-          className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-border/60 bg-background px-2 select-none"
+          className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-[color:var(--app-surface-divider)] bg-transparent px-2 select-none"
         >
           {headerContent}
         </header>
@@ -1144,6 +1725,7 @@ export function AppPageFrame({
         </p>
       ) : null}
       <div
+        ref={frameBodyRef}
         className="relative min-h-0 flex-1"
         style={frameHeight ? { height: frameHeight } : undefined}
       >
@@ -1153,13 +1735,16 @@ export function AppPageFrame({
             ref={iframeRef}
             title={frame.app.title}
             src={frame.frameUrl}
-            onLoad={() => setLoadedFrameKey(`${appPageId}:${reloadKey}:${frame.frameUrl}`)}
+            onLoad={() => {
+              setLoadedFrameKey(`${appPageId}:${reloadKey}:${frame.frameUrl}`);
+              setLoadedFrameGen((gen) => gen + 1);
+            }}
             sandbox={pageAppIframeSandbox(frame.ownOrigin)}
             allow="clipboard-write"
             referrerPolicy="no-referrer"
             className={cn(
               "absolute inset-0 size-full border-0",
-              isTransparent ? "bg-transparent" : "bg-white",
+              isTransparent ? "bg-transparent" : "bg-[var(--color-background-surface)]",
             )}
           />
         ) : (
@@ -1167,6 +1752,100 @@ export function AppPageFrame({
             {error ?? t("pageApps.frame.openingPage")}
           </div>
         )}
+        {markup.open && markup.coversPage ? (
+          <div data-testid="page-app-markup-canvas" className="absolute inset-0 z-20">
+            <MarkupCanvas
+              pageImageUrl={markup.pageImageUrl}
+              tool={markup.tool}
+              style={markup.style}
+              marks={markup.marks}
+              onAddMark={markup.addMark}
+              className="size-full"
+            />
+          </div>
+        ) : null}
+        {frameSelection && frame && mode === "full" && frame.viewer.isOwner && !isTransparent ? (
+          <PageAppSelectionBubble
+            rect={frameSelection.rect}
+            containerWidth={frameBodyRef.current?.clientWidth ?? 800}
+            containerHeight={frameBodyRef.current?.clientHeight ?? 600}
+            onComment={() => {
+              const sel = frameSelection;
+              setFrameSelection(null);
+              openSelectionCommentComposer(sel);
+            }}
+            onAskMoss={() => {
+              const sel = frameSelection;
+              setFrameSelection(null);
+              void routeToMossConversation({
+                prefillOnly: true,
+                quote: sel.text,
+                ...(sel.anchor?.label ? { label: sel.anchor.label } : {}),
+                origin: "selection-bar",
+              });
+            }}
+          />
+        ) : null}
+        {commentsAvailable && frame ? (
+          <PageCommentsLayer
+            frame={iframeRef.current}
+            frameGeneration={loadedFrameGen}
+            threadId={activeCommentsThreadId}
+            pageKey={`page-app:${frame.app.id}`}
+            pageTitle={frame.app.title}
+            zoom={1}
+            commentMode={commentMode}
+            onCommentModeChange={(next) => {
+              if (next && markup.open) markup.close();
+              setFrameSelection(null);
+              setCommentMode(next);
+            }}
+            panelOpen={commentsPanelOpen}
+            onPanelOpenChange={setCommentsPanelOpen}
+            markersVisible={commentMarkersVisible}
+            onSendToAgent={
+              activeCommentsThreadId
+                ? undefined
+                : (message) => {
+                    void routeToMossConversation({
+                      prompt: message,
+                      origin: "comment-mention",
+                    });
+                  }
+            }
+          />
+        ) : null}
+        {mode === "full" && !isStandalone && !isTransparent && markup.open ? (
+          <div
+            data-testid="page-app-markup-strip"
+            className="pointer-events-none absolute inset-x-0 bottom-3 z-30 px-3"
+          >
+            <MarkupToolbar
+              tool={markup.tool}
+              onToolChange={markup.setTool}
+              selectAvailable
+              canUndo={markup.canUndo}
+              canRedo={markup.canRedo}
+              hasMarks={markup.marks.length > 0}
+              expanded={markup.expanded}
+              style={markup.style}
+              onStyleChange={markup.setStyle}
+              action={{
+                label: t("browser.sketch.addToChat"),
+                busyLabel: t("browser.sketch.adding"),
+                busy: markup.adding,
+                onClick: markup.addToChat,
+              }}
+              confirmingDiscard={markup.confirmingDiscard}
+              onUndo={markup.undo}
+              onRedo={markup.redo}
+              onClear={markup.clear}
+              onRequestClose={markup.requestClose}
+              onCancelDiscard={markup.cancelDiscard}
+              onDiscard={markup.close}
+            />
+          </div>
+        ) : null}
         {isStandalone &&
         !isTransparent &&
         !attributionDismissed &&
@@ -1193,10 +1872,15 @@ export function AppPageFrame({
       </div>
 
       {mode === "embed" ? (
-        <div className="flex h-7 shrink-0 items-center gap-1 border-t border-[color:var(--color-border-light)] px-2 text-ui-sm text-[var(--color-text-foreground-tertiary)]">
+        <div
+          data-has-top-heading={hasTopHeading ? "true" : undefined}
+          className="flex h-7 shrink-0 items-center gap-1 border-t border-[color:var(--color-border-light)] px-2 text-ui-sm text-[var(--color-text-foreground-tertiary)]"
+        >
           <SparklesIcon className="size-3" aria-hidden />
           <span className="min-w-0 flex-1 truncate">
-            {frame?.app.title ?? t("pageApps.frame.untitled")} · {t("pageApps.frame.byline")}
+            {hasTopHeading
+              ? t("pageApps.frame.byline")
+              : `${frame?.app.title ?? t("pageApps.frame.untitled")} · ${t("pageApps.frame.byline")}`}
           </span>
           <Button
             variant="chrome"

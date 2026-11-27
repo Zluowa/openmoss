@@ -42,6 +42,7 @@ async function compose(ctx: PageAppShellContext, args: unknown) {
       quote: typeof anchor.quote === "string" ? anchor.quote : null,
     },
     target,
+    pageKey: `page-app:${ctx.appId}`,
     post: (body) => ctx.serverCall("add", { anchor, body }),
     signal: ctx.signal,
   });

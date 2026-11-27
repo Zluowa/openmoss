@@ -3,7 +3,7 @@
 //          leading glyph, label, and a trailing badge or hover shortcut.
 // Layer: Sidebar UI primitive (shared by the thread sidebar and the rail layout's panels)
 
-import type { ComponentType } from "react";
+import type { ComponentType, ReactNode } from "react";
 
 import { cn } from "~/lib/utils";
 import {
@@ -30,6 +30,7 @@ export function SidebarPrimaryAction({
   shortcutLabel,
   badge,
   detail,
+  trailingIndicator,
 }: {
   // Accepts both Lucide adapters and raw react-icons glyphs (rendered via SidebarGlyph).
   icon: ComponentType<{ className?: string }>;
@@ -45,6 +46,8 @@ export function SidebarPrimaryAction({
   badge?: SidebarActionBadge | null;
   /** Quiet text at the row's end, such as when an untitled item was made. */
   detail?: string | undefined;
+  /** Optional status glyph rendered at the row end (e.g. active/running companion chat). */
+  trailingIndicator?: ReactNode;
 }) {
   // Defaults live in the body, not the destructuring pattern: an AssignmentPattern in
   // the parameter list makes React Compiler bail out on the whole component.
@@ -77,8 +80,11 @@ export function SidebarPrimaryAction({
         />
       </SidebarLeadingIcon>
       <span className="truncate">{label}</span>
-      {detail ? (
-        <span className="ml-auto shrink-0 text-ui-sm text-muted-foreground">{detail}</span>
+      {trailingIndicator || detail ? (
+        <span className="ml-auto flex shrink-0 items-center gap-1.5">
+          {detail ? <span className="text-ui-sm text-muted-foreground">{detail}</span> : null}
+          {trailingIndicator}
+        </span>
       ) : badge ? (
         <span
           className="ml-auto inline-flex h-4 min-w-4 items-center justify-center rounded-control-xs bg-muted px-1 text-ui-xs font-medium text-muted-foreground"

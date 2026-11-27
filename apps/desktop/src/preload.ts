@@ -748,6 +748,7 @@ const desktopBridge = {
     listInstalled: () => ipcRenderer.invoke(IPC.pageApps.listInstalled),
     openInstalled: (input) => ipcRenderer.invoke(IPC.pageApps.openInstalled, input),
     uninstall: (input) => ipcRenderer.invoke(IPC.pageApps.uninstall, input),
+    setDesktopShortcut: (input) => ipcRenderer.invoke(IPC.pageApps.setDesktopShortcut, input),
     showInFolder: (input) => ipcRenderer.invoke(IPC.pageApps.showInFolder, input),
     openPermissions: (input) => ipcRenderer.invoke(IPC.pageApps.openPermissions, input),
     getPermissions: (input) => ipcRenderer.invoke(IPC.pageApps.getPermissions, input),

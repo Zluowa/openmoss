@@ -10,6 +10,8 @@ import type {
   PageAppsCallResult,
   PageAppsConsentInput,
   PageAppsConsentResult,
+  PageAppsGenerateCoverInput,
+  PageAppsGenerateCoverResult,
   PageAppsListInput,
   PageAppsListResult,
   PageAppsMutateInput,
@@ -397,10 +399,14 @@ export function watchPageApp(input: PageAppsCallInput, sink: PageAppsWatchSink):
 
 export const pageAppsClient = {
   list: (input: PageAppsListInput) => post<PageAppsListResult>("list", input),
+  listPublished: (input: { scopeSpaceId?: PageAppsListInput["scopeSpaceId"] } = {}) =>
+    post<import("@moss/contracts").PageAppsListPublishedResult>("list-published", input),
   read: (input: PageAppsReadInput) => post<PageAppsReadResult>("read", input),
   versions: (input: PageAppsVersionsInput) => post<PageAppsVersionsResult>("versions", input),
   mutate: (input: PageAppsMutateInput, signal?: AbortSignal) =>
     post<PageAppsMutateResult>("mutate", input, signal),
+  generateCover: (input: PageAppsGenerateCoverInput, signal?: AbortSignal) =>
+    post<PageAppsGenerateCoverResult>("generate-cover", input, signal),
   consent: (input: PageAppsConsentInput) => post<PageAppsConsentResult>("consent", input),
   openFrame: (input: PageAppsOpenFrameInput) => post<PageAppsOpenFrameResult>("open-frame", input),
   call: (input: PageAppsCallInput, signal?: AbortSignal) =>

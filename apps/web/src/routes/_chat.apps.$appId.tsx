@@ -4,15 +4,21 @@
 // Layer: Routing
 
 import { createFileRoute, useLocation, useNavigate } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
+import { CHAT_BACKGROUND_CLASS_NAME } from "~/components/chat/composerPickerStyles";
 import { AppPageFrame } from "~/components/pageApps/AppPageFrame";
 import {
   getDesktopNativePane,
   getDesktopPageAppsBridge,
   readTransparentFromWindowPayload,
 } from "~/components/pageApps/capabilities/desktop";
+import {
+  SpaceCanvasChatDockHost,
+  type SpaceCanvasActiveArtifact,
+} from "~/components/space/SpaceCanvasChatDock";
 import { useOptionalSidebar } from "~/components/ui/sidebar";
+import { cn } from "~/lib/utils";
 
 export function isStandaloneAppPageSearch(search: Record<string, unknown> | undefined): boolean {
   if (!search) return false;
@@ -41,7 +47,19 @@ function AppPageRoute() {
       Boolean((nativePane as { transparent?: boolean } | null)?.transparent)),
   );
   const [liveTransparent, setLiveTransparent] = useState(initialTransparent);
+  const [appTitle, setAppTitle] = useState("应用页");
+  const dockHostRef = useRef<HTMLDivElement | null>(null);
   const isTransparent = Boolean(isStandalone && (initialTransparent || liveTransparent));
+  const appArtifact = useMemo<SpaceCanvasActiveArtifact>(
+    () => ({
+      kind: "app",
+      itemId: appId,
+      title: appTitle,
+      scopeSpaceId: null,
+      account: "default",
+    }),
+    [appId, appTitle],
+  );
   const sidebar = useOptionalSidebar();
   const setSidebarOpen = sidebar?.setOpen;
 
@@ -108,6 +126,7 @@ function AppPageRoute() {
   if (isStandalone) {
     return (
       <div
+        ref={dockHostRef}
         data-testid="standalone-app-page-shell"
         data-standalone="true"
         data-transparent={isTransparent ? "true" : undefined}
@@ -117,28 +136,69 @@ function AppPageRoute() {
             : "fixed inset-0 z-40 flex h-svh w-screen flex-col bg-[var(--color-background-surface)]"
         }
       >
-        <AppPageFrame
-          key={appId}
-          appPageId={appId}
-          mode="full"
-          standalone
-          chrome="none"
-          transparent={isTransparent}
-        />
+        {isTransparent ? (
+          <AppPageFrame
+            key={appId}
+            appPageId={appId}
+            mode="full"
+            standalone
+            chrome="none"
+            transparent
+            onTitleChange={setAppTitle}
+          />
+        ) : (
+          <SpaceCanvasChatDockHost
+            artifact={appArtifact}
+            containerRef={dockHostRef}
+            floatingLauncher="minimized"
+            keepItemOpen
+          >
+            {(dock) => (
+              <AppPageFrame
+                key={appId}
+                appPageId={appId}
+                mode="full"
+                standalone
+                chrome="none"
+                dock={dock}
+                onTitleChange={setAppTitle}
+              />
+            )}
+          </SpaceCanvasChatDockHost>
+        )}
       </div>
     );
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-1 flex-col">
-      {/* Nothing sits above this view, so the frame's header is the window's top bar. */}
-      <AppPageFrame
-        key={appId}
-        appPageId={appId}
-        mode="full"
-        topBar
-        onDeleted={() => void navigate({ to: "/apps" })}
-      />
+    <div
+      ref={dockHostRef}
+      className={cn(
+        "relative flex h-full min-h-0 flex-1 flex-col overflow-hidden",
+        CHAT_BACKGROUND_CLASS_NAME,
+      )}
+    >
+      <SpaceCanvasChatDockHost
+        artifact={appArtifact}
+        containerRef={dockHostRef}
+        floatingLauncher="compact"
+        keepItemOpen
+      >
+        {(dock) => (
+          <>
+            {/* Nothing sits above this view, so the frame's header is the window's top bar. */}
+            <AppPageFrame
+              key={appId}
+              appPageId={appId}
+              mode="full"
+              topBar
+              dock={dock}
+              onTitleChange={setAppTitle}
+              onDeleted={() => void navigate({ to: "/apps" })}
+            />
+          </>
+        )}
+      </SpaceCanvasChatDockHost>
     </div>
   );
 }

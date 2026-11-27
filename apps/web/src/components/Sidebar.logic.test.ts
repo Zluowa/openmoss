@@ -42,10 +42,13 @@ import {
   resolveProjectStatusIndicator,
   resolveSidebarNewThreadEnvMode,
   resolveSidebarProjectRowLabel,
+  resolveSidebarThreadPresentationState,
   resolveThreadHoverCardMetadata,
   resolveThreadRowAriaLabel,
+  resolveThreadRowClassName,
   resolveThreadStatusPill,
   resolveThreadStatusTrailingIndicator,
+  SIDEBAR_ROW_APP_COMPANION_CLASS_NAME,
   type ThreadStatusPill,
   shouldShowDebugFeatureFlagsMenu,
   shouldClearThreadSelectionOnMouseDown,
@@ -2633,5 +2636,56 @@ describe("shouldReopenThreadsViewFromRail", () => {
         latestPathname: "/mossbot",
       }),
     ).toBe(true);
+  });
+});
+
+describe("resolveSidebarThreadPresentationState", () => {
+  it("prioritizes selected main-route thread over app-companion and app-origin", () => {
+    expect(
+      resolveSidebarThreadPresentationState({
+        isActive: true,
+        isAppCompanionActive: true,
+        isAppOrigin: true,
+      }),
+    ).toBe("selected");
+  });
+
+  it("distinguishes active standalone app-companion, inactive app-origin, and default threads", () => {
+    expect(
+      resolveSidebarThreadPresentationState({
+        isActive: false,
+        isAppCompanionActive: true,
+        isAppOrigin: true,
+      }),
+    ).toBe("app-companion");
+    expect(
+      resolveSidebarThreadPresentationState({
+        isActive: false,
+        isAppCompanionActive: false,
+        isAppOrigin: true,
+      }),
+    ).toBe("app-origin");
+    expect(
+      resolveSidebarThreadPresentationState({
+        isActive: false,
+        isAppCompanionActive: false,
+        isAppOrigin: false,
+      }),
+    ).toBe("default");
+  });
+
+  it("applies the quiet companion ring class instead of active solid fill when app-companion is active", () => {
+    const companionClass = resolveThreadRowClassName({
+      isActive: false,
+      isSelected: false,
+      isAppCompanionActive: true,
+    });
+    const activeClass = resolveThreadRowClassName({
+      isActive: true,
+      isSelected: false,
+      isAppCompanionActive: false,
+    });
+    expect(companionClass).toContain(SIDEBAR_ROW_APP_COMPANION_CLASS_NAME);
+    expect(companionClass).not.toBe(activeClass);
   });
 });

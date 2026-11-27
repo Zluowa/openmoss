@@ -236,6 +236,7 @@ import Migration0171 from "./Migrations/171_PageAssistantThread.ts";
 import Migration0172 from "./Migrations/172_ProjectionThreadsListedAfterFirstSend.ts";
 import Migration0173 from "./Migrations/173_ProjectionThreadsCanvasEditedAt.ts";
 import Migration0174 from "./Migrations/174_ProjectionThreadSessionSteering.ts";
+import Migration0175 from "./Migrations/175_PageAppPinnedAndStarters.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -424,6 +425,7 @@ export const migrationEntries = [
   [172, "ProjectionThreadsListedAfterFirstSend", Migration0172],
   [173, "ProjectionThreadsCanvasEditedAt", Migration0173],
   [174, "ProjectionThreadSessionSteering", Migration0174],
+  [175, "PageAppPinnedAndStarters", Migration0175],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>
@@ -494,6 +496,8 @@ export const MIGRATIONS_OLDER_READERS_MAY_IGNORE: ReadonlyArray<readonly [number
   // rides on `thread.session-set` as an optional field older decoders drop; older builds upsert
   // sessions by named columns and never touch it, and newer live sessions re-negotiate on start.
   [174, "ProjectionThreadSessionSteering"],
+  // Additive nullable columns on page_apps + dismissal table for starters; older readers ignore them.
+  [175, "PageAppPinnedAndStarters"],
 ];
 
 /**

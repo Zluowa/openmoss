@@ -188,7 +188,11 @@ import {
 } from "../storeSelectors";
 import { derivePendingApprovals, derivePendingUserInputs } from "../session-logic";
 import { useActivityThreads } from "../hooks/useActivityThreads";
-import { usePageAssistantThreadIds } from "../hooks/usePageAssistantThreadIds";
+import {
+  useAppCompanionBindingsByThreadId,
+  useNonAppPageAssistantThreadIds,
+} from "../hooks/usePageAssistantThreadIds";
+import { useActiveCompanionDock } from "../lib/pageAi/activeCompanionDock";
 import { useCommittedPathname } from "../hooks/useCommittedPathname";
 import { countNeedsYouActions } from "./inbox/inbox.logic";
 import {
@@ -436,6 +440,9 @@ import {
   resolveThreadProjectLabel,
   resolveThreadRowAriaLabel,
   resolveThreadRowClassName,
+  resolveCompanionAugmentedThreadStatus,
+  resolveSidebarThreadPresentationState,
+  SIDEBAR_ROW_APP_COMPANION_CLASS_NAME,
   resolveThreadStatusPill,
   resolveThreadStatusTrailingIndicator,
   type ThreadStatusPill,
@@ -1818,7 +1825,9 @@ export default function Sidebar() {
     visibleNonGroupThreads: visibleNonGroupSidebarThreads,
     activityNonGroupThreads: activityNonGroupSidebarThreads,
   } = useActivityThreads({ hideAutomationRunThreads });
-  const itemChatThreadIds = usePageAssistantThreadIds();
+  const itemChatThreadIds = useNonAppPageAssistantThreadIds();
+  const appCompanionBindingsByThreadId = useAppCompanionBindingsByThreadId();
+  const activeCompanionDock = useActiveCompanionDock();
   const displaySidebarTreeThreads = useMemo(
     // A 资料空间 item's chat stays inside the item, not in a project's list (S-6).
     () =>
@@ -5142,6 +5151,16 @@ export default function Sidebar() {
     });
     const terminalCount = threadTerminalState.terminalIds.length;
     const isActive = visualActiveSidebarThreadId === thread.id;
+    const isAppOrigin = appCompanionBindingsByThreadId.has(thread.id);
+    const isAppCompanionActive =
+      !isActive &&
+      activeCompanionDock?.artifactKind === "app" &&
+      activeCompanionDock.threadId === thread.id;
+    const presentationState = resolveSidebarThreadPresentationState({
+      isActive,
+      isAppCompanionActive,
+      isAppOrigin,
+    });
     const projectLabel = resolvePinnedThreadProjectLabel(thread.projectId);
     const rightMetaChips = resolveThreadRowMetaChips({
       thread,
@@ -5153,7 +5172,12 @@ export default function Sidebar() {
       threadAutomations: automationsByThreadId.get(thread.id),
       guestMessagesWaitingLabel: guestMessagesWaitingLabelFor(thread.id),
     });
-    const threadStatus = resolveThreadStatusForSidebar(thread);
+    const threadStatus = resolveCompanionAugmentedThreadStatus({
+      baseStatus: resolveThreadStatusForSidebar(thread),
+      isAppCompanionActive,
+      dockBusy: activeCompanionDock?.busy,
+      dockHasUnread: activeCompanionDock?.hasUnread,
+    });
     const isSubagentThread = Boolean(thread.parentThreadId);
     const pr = prByThreadId.get(thread.id) ?? null;
     const prChip =
@@ -5178,6 +5202,8 @@ export default function Sidebar() {
             role="button"
             tabIndex={0}
             data-thread-item
+            data-active={isActive ? "true" : "false"}
+            data-sidebar-thread-state={presentationState}
             aria-label={resolveThreadRowAriaLabel(thread, format)}
             aria-description={prChip?.tooltip}
             className={cn(
@@ -5186,11 +5212,17 @@ export default function Sidebar() {
               "relative gap-1.5 pr-2 transition-colors",
               isActive
                 ? SIDEBAR_ROW_ACTIVE_CLASS_NAME
-                : cn(
-                    SIDEBAR_ROW_IDLE_TEXT_CLASS_NAME,
-                    SIDEBAR_ROW_HOVER_CLASS_NAME,
-                    threadStatus?.label === "Reminder" && SIDEBAR_ROW_SNOOZE_REMINDER_CLASS_NAME,
-                  ),
+                : isAppCompanionActive
+                  ? cn(
+                      SIDEBAR_ROW_APP_COMPANION_CLASS_NAME,
+                      SIDEBAR_ROW_HOVER_CLASS_NAME,
+                      threadStatus?.label === "Reminder" && SIDEBAR_ROW_SNOOZE_REMINDER_CLASS_NAME,
+                    )
+                  : cn(
+                      SIDEBAR_ROW_IDLE_TEXT_CLASS_NAME,
+                      SIDEBAR_ROW_HOVER_CLASS_NAME,
+                      threadStatus?.label === "Reminder" && SIDEBAR_ROW_SNOOZE_REMINDER_CLASS_NAME,
+                    ),
             )}
             onPointerDown={(event) => primeThreadActivation(event, thread.id)}
             onAuxClick={(event) => {
@@ -5226,6 +5258,7 @@ export default function Sidebar() {
               terminalCount={terminalCount}
               isActive={isActive}
               variant="pinned"
+              appOriginState={isAppCompanionActive ? "companion" : isAppOrigin ? "origin" : null}
               pendingStatusColorClass={
                 threadStatus?.label === "Pending Approval"
                   ? "text-emerald-700 dark:text-emerald-400"
@@ -5291,10 +5324,25 @@ export default function Sidebar() {
     const threadTerminalState = selectThreadTerminalState(terminalStateByThreadId, thread.id);
     const threadEntryPoint = threadTerminalState.entryPoint;
     const isActive = visualActiveSidebarThreadId === thread.id;
+    const isAppOrigin = appCompanionBindingsByThreadId.has(thread.id);
+    const isAppCompanionActive =
+      !isActive &&
+      activeCompanionDock?.artifactKind === "app" &&
+      activeCompanionDock.threadId === thread.id;
+    const presentationState = resolveSidebarThreadPresentationState({
+      isActive,
+      isAppCompanionActive,
+      isAppOrigin,
+    });
     const isPinned = pinnedThreadIdSet.has(thread.id);
     const isSelected = selectedThreadIds.has(thread.id);
-    const isHighlighted = isActive || isSelected;
-    const threadStatus = resolveThreadStatusForSidebar(thread);
+    const isHighlighted = isActive || isSelected || isAppCompanionActive;
+    const threadStatus = resolveCompanionAugmentedThreadStatus({
+      baseStatus: resolveThreadStatusForSidebar(thread),
+      isAppCompanionActive,
+      dockBusy: activeCompanionDock?.busy,
+      dockHasUnread: activeCompanionDock?.hasUnread,
+    });
     const pr = prByThreadId.get(thread.id) ?? null;
     const terminalStatus = terminalStatusFromThreadState({
       runningTerminalIds: threadTerminalState.runningTerminalIds,
@@ -5347,6 +5395,7 @@ export default function Sidebar() {
               <SidebarMenuSubButton
                 render={<div role="button" tabIndex={0} />}
                 data-thread-entry-point={threadEntryPoint}
+                data-sidebar-thread-state={presentationState}
                 size="sm"
                 isActive={isActive}
                 aria-label={resolveThreadRowAriaLabel(thread, format)}
@@ -5355,6 +5404,7 @@ export default function Sidebar() {
                   resolveThreadRowClassName({
                     isActive,
                     isSelected,
+                    isAppCompanionActive,
                     isSnoozeReminder: threadStatus?.label === "Reminder",
                   }),
                   topLevel && !isSubagentThread ? "pl-2" : null,
@@ -5412,6 +5462,7 @@ export default function Sidebar() {
               terminalCount={terminalCount}
               isActive={isActive}
               variant="standard"
+              appOriginState={isAppCompanionActive ? "companion" : isAppOrigin ? "origin" : null}
               subagentIndentPx={subagentIndentPx}
               childCount={hierarchy?.childCount ?? 0}
               isParentCollapsed={hierarchy?.isParentCollapsed ?? false}

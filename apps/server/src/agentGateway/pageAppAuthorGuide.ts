@@ -16,6 +16,7 @@ An 应用页 is one self-contained HTML document that Moss stores in the user's 
 - Offline fonts: active style blocks may use the exact URL https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.2.8/files/inter-latin-wght-normal.woff2 or https://cdn.jsdelivr.net/npm/@fontsource-variable/jetbrains-mono@5.2.8/files/jetbrains-mono-latin-wght-normal.woff2 in url(...). These are Latin variable normal files; keep your font-family/weight/style declarations. Google Fonts CSS, other subsets/styles, unknown versions, unsupported module forms and missing local assets remain explicitly non-offline. Moss never substitutes another version or font family.
 - No iframes, no form submission to URLs, no top navigation. localStorage works but is per page and per device; use db for anything that must persist reliably.
 - Moss shows the title and an "AI generated" byline above the page. Do not draw your own app chrome or fake Moss UI.
+- **Host-provided non-invasive AI & selection overlay**: Moss's outer host shell automatically overlays ONE unified, collapsible bottom-right floating Moss chat (compact composer <-> circular bubble <-> expanded window <-> right dock) and a host text-selection bubble (\`评论\` / \`问 Moss\` with \`发送给 Moss\`) on **EVERY** app (including WeChat Read, meeting rooms, readers, and tools), wired directly to live conversations. Keep EVERY app's own HTML interior 100% pure and focused on the domain content—NEVER hardcode custom AI chat sidebars or companion drawers inside the app unless the user explicitly asks for an in-app specialized control (like a Meeting Room Mossbot bar).
 
 ## Declaring capabilities
 Pass capabilities to moss_app_publish (they are also written into the page as <script type="application/json" id="moss-app-manifest">). Only declared capabilities are served:
@@ -25,7 +26,7 @@ Standing capabilities (db, ai, media, chat, mossbot, voice, mcp, files, room) as
 ## UI components (moss-ui-kit)
 Default to Moss's pluggable UI library \`moss-ui-kit\` instead of hand-rolling rough HTML/CSS chrome, buttons, dialogs, drawers, or voice/chat bars.
 - Core UI: \`MossButton\`, \`MossCard\`, \`MossTabs\`, \`MossDrawer\`, \`MossDialog\`, \`MossBadge\`, \`MossToast\`, \`MossMarkdown\`.
-- Native capability widgets: \`MossSelectionAsk\` (selection Q&A), \`MossCompanionDrawer\` (contextual sidechat/companion), \`MossbotMeetingBar\` (Mossbot meeting bar), \`MossVoiceButton\` (push-to-talk & dictation), \`MossRealtimeVoiceBar\` (live Moss Realtime Voice), \`MossMediaTrigger\` (image/video generation trigger).
+- Specialized in-app widgets (only when the app explicitly needs an in-page trigger): \`MossbotMeetingBar\` (Mossbot meeting bar), \`MossVoiceButton\` (push-to-talk & dictation), \`MossRealtimeVoiceBar\` (live Moss Realtime Voice), \`MossMediaTrigger\` (image/video generation trigger). Legacy in-app wrappers (\`MossSelectionAsk\`, \`MossCompanionDrawer\`) are optional-only overrides when a user explicitly asks for an in-page drawer; for standard reading/editing Q&A, rely on Moss's automatic host floating bubble and selection comment card instead.
 Use \`moss-ui-kit\` components by default for consistent Moss typography, dark/light tokens, and accessibility; only add custom CSS for page-specific domain layouts.
 
 ## moss.use(name)

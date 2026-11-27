@@ -27,6 +27,7 @@ import { WorkspaceFilePreview } from "../WorkspaceFilePreview";
 import { FILE_CONVERSION_LABELS, fileConversionFor } from "../spaceTypes/spaceFileConversion";
 import { spaceMossMediaPath, type SpaceItem } from "./spaceItems";
 import { isHtmlOutput, spaceItemMeta, spaceKindMeta } from "./spaceKinds";
+import type { SpaceCanvasDockController } from "./spaceCanvasDockContract";
 
 /** Reads a chat output's text (HTML for 保存为应用页). */
 export async function readOutputText(item: SpaceItem): Promise<string> {
@@ -189,6 +190,7 @@ export function SpaceOutputViewer(props: {
  */
 export function SpaceAppViewer(props: {
   item: SpaceItem;
+  dock?: SpaceCanvasDockController | null | undefined;
   onContinueInChat: (item: SpaceItem) => void;
 }) {
   if (props.item.source.type !== "app") return null;
@@ -209,7 +211,13 @@ export function SpaceAppViewer(props: {
         ) : null}
       </ViewerHeader>
       <div className="flex min-h-0 flex-1 flex-col">
-        <AppPageFrame key={app.id} appPageId={app.id} mode="full" className="min-h-0 flex-1" />
+        <AppPageFrame
+          key={app.id}
+          appPageId={app.id}
+          mode="full"
+          dock={props.dock}
+          className="min-h-0 flex-1"
+        />
       </div>
     </div>
   );

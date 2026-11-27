@@ -259,6 +259,7 @@ export const DESKTOP_IPC_CHANNELS = {
     listInstalled: "desktop:page-apps-list-installed",
     openInstalled: "desktop:page-apps-open-installed",
     uninstall: "desktop:page-apps-uninstall",
+    setDesktopShortcut: "desktop:page-apps-set-desktop-shortcut",
     showInFolder: "desktop:page-apps-show-in-folder",
     openPermissions: "desktop:page-apps-open-permissions",
     getPermissions: "desktop:page-apps-get-permissions",

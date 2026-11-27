@@ -395,4 +395,155 @@ tests("PageAppsService", (it) => {
       assert.isNull(service.verifyFrameToken(`${body}.`));
     }),
   );
+
+  it.effect(
+    "pins stable revisions, seeds the native novel reader starter once, and dismisses permanently on trash",
+    () =>
+      Effect.gen(function* () {
+        const service = yield* PageAppsService;
+        const firstList = yield* service.list({ scopeSpaceId: null }, local);
+        const starter = firstList.apps.find((a) => a.starterId === "moss-novel-reader-v1");
+        assert.isDefined(starter);
+        assert.equal(starter!.title, "静读 · 小说阅读器");
+
+        // Pinning keeps serving the pinned revision even after newer updates are saved.
+        const created = yield* create({}, html("<p>v1</p>"));
+        const v2 = (yield* service.mutate(
+          {
+            op: "update",
+            requestId: randomUUID(),
+            appId: created.id,
+            expectedRevision: created.revision,
+            html: html("<p>v2</p>"),
+          },
+          local,
+        )).app;
+        const pinned = (yield* service.mutate(
+          {
+            op: "pin-version",
+            requestId: randomUUID(),
+            appId: v2.id,
+            expectedRevision: v2.revision,
+            revision: 1,
+          },
+          local,
+        )).app;
+        assert.equal(pinned.pinnedRevision, 1);
+        const readPinned = yield* service.read({ appId: pinned.id }, local);
+        assert.equal(readPinned.revision, 1);
+        assert.include(readPinned.html, "<p>v1</p>");
+
+        const unpinned = (yield* service.mutate(
+          {
+            op: "pin-version",
+            requestId: randomUUID(),
+            appId: pinned.id,
+            expectedRevision: pinned.revision,
+            revision: null,
+          },
+          local,
+        )).app;
+        assert.isNull(unpinned.pinnedRevision);
+        assert.equal((yield* service.read({ appId: unpinned.id }, local)).revision, 2);
+
+        // Trashing starter dismisses it so subsequent lists never re-seed it.
+        yield* service.mutate(
+          {
+            op: "trash",
+            requestId: randomUUID(),
+            appId: starter!.id,
+            expectedRevision: starter!.revision,
+          },
+          local,
+        );
+        const afterTrashList = yield* service.list({ scopeSpaceId: null }, local);
+        assert.isFalse(afterTrashList.apps.some((a) => a.starterId === "moss-novel-reader-v1"));
+        const published = yield* service.listPublished({ scopeSpaceId: null }, local);
+        assert.deepEqual(published.publications, []);
+      }),
+  );
+
+  it.effect(
+    "preserves covers on rename and rejects generateCover when media gateway is absent",
+    () =>
+      Effect.gen(function* () {
+        const service = yield* PageAppsService;
+        let app = yield* create();
+        const thumbnail =
+          "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAAMCAgICAgMCAgIDAwMDBAYEBAQEBAgGBgUGCQgKCgkICQkKDA8MCgsOCwkJDRENDg8QEBEQCgwSExIQEw8QEBD/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKwA//9k=";
+        app = (yield* service.mutate(
+          {
+            op: "set-thumbnail",
+            requestId: randomUUID(),
+            appId: app.id,
+            expectedRevision: app.revision,
+            thumbnail,
+          },
+          local,
+        )).app;
+        app = (yield* service.mutate(
+          {
+            op: "rename",
+            requestId: randomUUID(),
+            appId: app.id,
+            expectedRevision: app.revision,
+            title: "Renamed Keeps Cover",
+          },
+          local,
+        )).app;
+        assert.equal(app.thumbnail, thumbnail);
+
+        const unavailable = yield* Effect.exit(service.generateCover({ appId: app.id }, local));
+        assert.isTrue(Exit.isFailure(unavailable));
+      }),
+  );
+
+  it.effect("generates editorial AI covers via deps.media when available", () => {
+    let seenArgs: Record<string, unknown> | null = null;
+    const fakeMedia = {
+      listModels: async () => [],
+      generate: async ({ args }: { args: Record<string, unknown> }) => {
+        seenArgs = args;
+        return {
+          jobId: "job-cover-1",
+          kind: "image" as const,
+          modelId: "test-image-model",
+          prompt: String(args.prompt ?? ""),
+          status: "succeeded" as const,
+          url: "data:image/png;base64,AAAA",
+          urls: [],
+          dataUrls: ["data:image/png;base64,AAAA"],
+          createdAt: "2026-11-27T12:00:00.000Z",
+        };
+      },
+      getJob: async () => {
+        throw new Error("unused");
+      },
+    };
+    const customLayer = Layer.effect(
+      PageAppsService,
+      makePageAppsServiceShape({ ai: fakeAi, media: fakeMedia }),
+    ).pipe(Layer.provideMerge(SqlitePersistenceMemory));
+
+    return Effect.gen(function* () {
+      const service = yield* PageAppsService;
+      const created = (yield* service.mutate(
+        {
+          op: "create",
+          requestId: randomUUID(),
+          scopeSpaceId: null,
+          title: "城市步行导航",
+          description: "手绘感街区漫步地图与休息站推荐",
+          html: html("<p>map</p>"),
+        },
+        local,
+      )).app;
+      const generated = yield* service.generateCover({ appId: created.id }, local);
+      assert.equal(generated.app.id, created.id);
+      assert.equal(generated.imageDataUrl, "data:image/png;base64,AAAA");
+      assert.equal(generated.modelId, "test-image-model");
+      assert.include(generated.prompt, "城市步行导航");
+      assert.include(String(seenArgs?.["prompt"]), "手绘感街区漫步地图");
+    }).pipe(Effect.provide(customLayer));
+  });
 });

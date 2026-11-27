@@ -15,7 +15,9 @@ import {
   PageAppVersion,
   PageAppsCallInput,
   PageAppsConsentInput,
+  PageAppsGenerateCoverInput,
   PageAppsListInput,
+  PageAppsListPublishedInput,
   PageAppsMutateInput,
   PageAppsMutateResult,
   PageAppsReadInput,
@@ -25,6 +27,8 @@ import {
   type PageAppViewer,
   type PageAppsCallResult,
   type PageAppsConsentResult,
+  type PageAppsGenerateCoverResult,
+  type PageAppsListPublishedResult,
   type PageAppsListResult,
   type PageAppsReadResult,
   type PageAppsVersionsResult,
@@ -32,6 +36,7 @@ import {
   type SpaceId,
   type ThreadId,
 } from "@moss/contracts";
+import { MOSS_DEFAULT_IMAGE_MODEL_ID } from "@moss/shared/mossMediaPlugins";
 import { PageAppCapabilityError, toPageAppCallError } from "@moss/shared/pageAppCapabilityPlugin";
 import { readPageAppManifest, writePageAppManifest } from "@moss/shared/pageAppManifest";
 import { Effect, Layer, Schema, ServiceMap, Stream } from "effect";
@@ -43,6 +48,7 @@ import type { PageAppAiGateway } from "./aiGateway";
 import { makePageAppServerCapabilities } from "./capabilities";
 import type { PageAppMediaGateway } from "./capabilities/media";
 import type { PageAppMossbotGateway } from "./capabilities/mossbot";
+import { BUILTIN_PAGE_APP_STARTERS } from "./starters";
 import type { PageAppVoiceGateway } from "./capabilities/voice";
 import type { PageAppExtensionDeps } from "./extensions";
 import type { PageAppServerCapability, PageAppServerCallContext } from "./capabilities/types";
@@ -87,6 +93,10 @@ export interface PageAppsServiceShape {
     input: PageAppsListInput,
     principal: PagesPrincipal,
   ) => Effect.Effect<PageAppsListResult, PageAppsServiceError>;
+  readonly listPublished: (
+    input: PageAppsListPublishedInput,
+    principal: PagesPrincipal,
+  ) => Effect.Effect<PageAppsListPublishedResult, PageAppsServiceError>;
   readonly read: (
     input: PageAppsReadInput,
     principal: PagesPrincipal,
@@ -99,6 +109,10 @@ export interface PageAppsServiceShape {
     input: PageAppsMutateInput,
     principal: PagesPrincipal,
   ) => Effect.Effect<PageAppsMutateResult, PageAppsServiceError>;
+  readonly generateCover: (
+    input: PageAppsGenerateCoverInput,
+    principal: PagesPrincipal,
+  ) => Effect.Effect<PageAppsGenerateCoverResult, PageAppsServiceError>;
   readonly consent: (
     input: PageAppsConsentInput,
     viewer: PageAppViewer,
@@ -137,6 +151,8 @@ type AppRow = {
   title: string;
   description: string;
   revision: number;
+  pinned_revision: number | null;
+  starter_id: string | null;
   capabilities_json: string;
   favorite: number;
   thumbnail: string | null;
@@ -195,6 +211,8 @@ const appFromRow = (row: AppRow): PageApp =>
     title: row.title,
     description: row.description,
     revision: row.revision,
+    pinnedRevision: row.pinned_revision ?? null,
+    starterId: row.starter_id ?? null,
     capabilities: JSON.parse(row.capabilities_json),
     favorite: row.favorite !== 0,
     thumbnail: row.thumbnail,
@@ -391,14 +409,17 @@ export const makePageAppsServiceShape = (deps: PageAppsServiceDeps) =>
         const key = scopeKey(app.scopeSpaceId);
         if (previousRevision === null) {
           yield* sql`INSERT INTO page_apps (app_id, scope_key, space_id, title, description, revision,
-            capabilities_json, favorite, thumbnail, source_thread_id, html_chars, trashed_at, created_at, updated_at)
+            pinned_revision, starter_id, capabilities_json, favorite, thumbnail, source_thread_id,
+            html_chars, trashed_at, created_at, updated_at)
             VALUES (${app.id}, ${key}, ${app.spaceId}, ${app.title}, ${app.description}, ${app.revision},
-            ${JSON.stringify(app.capabilities)}, ${app.favorite ? 1 : 0}, ${app.thumbnail}, ${app.sourceThreadId},
-            ${app.htmlChars}, ${app.trashedAt}, ${app.createdAt}, ${app.updatedAt})`;
+            ${app.pinnedRevision ?? null}, ${app.starterId ?? null}, ${JSON.stringify(app.capabilities)},
+            ${app.favorite ? 1 : 0}, ${app.thumbnail}, ${app.sourceThreadId}, ${app.htmlChars},
+            ${app.trashedAt}, ${app.createdAt}, ${app.updatedAt})`;
         } else {
           const changed =
             yield* sql`UPDATE page_apps SET space_id = ${app.spaceId}, title = ${app.title},
             description = ${app.description}, revision = ${app.revision},
+            pinned_revision = ${app.pinnedRevision ?? null}, starter_id = ${app.starterId ?? null},
             capabilities_json = ${JSON.stringify(app.capabilities)}, favorite = ${app.favorite ? 1 : 0},
             thumbnail = ${app.thumbnail}, html_chars = ${app.htmlChars}, trashed_at = ${app.trashedAt},
             updated_at = ${app.updatedAt}
@@ -436,12 +457,60 @@ export const makePageAppsServiceShape = (deps: PageAppsServiceDeps) =>
       }
     });
 
+    const ensureBuiltInStarters = Effect.gen(function* () {
+      for (const starter of BUILTIN_PAGE_APP_STARTERS) {
+        const existing = yield* sql<{ app_id: string }>`
+          SELECT app_id FROM page_apps WHERE starter_id = ${starter.starterId} LIMIT 1`;
+        if (existing[0]) continue;
+        const dismissed = yield* sql<{ starter_id: string }>`
+          SELECT starter_id FROM page_app_dismissed_starters WHERE starter_id = ${starter.starterId} LIMIT 1`;
+        if (dismissed[0]) continue;
+        const timestamp = now();
+        const prepared = yield* prepareHtml(starter.html, {
+          title: starter.title,
+          description: starter.description,
+          capabilities: {},
+        });
+        const starterApp: PageApp = {
+          id: PageAppId.makeUnsafe(newId()),
+          scopeSpaceId: null,
+          spaceId: null,
+          title: prepared.title,
+          description: prepared.description,
+          revision: 1,
+          pinnedRevision: null,
+          starterId: starter.starterId,
+          capabilities: prepared.capabilities,
+          favorite: false,
+          thumbnail: null,
+          sourceThreadId: null,
+          htmlChars: prepared.html.length,
+          trashedAt: null,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        };
+        yield* save(
+          starterApp,
+          { html: prepared.html, operation: "starter" },
+          { kind: "local-user" },
+          null,
+        );
+      }
+    });
+
     const list: PageAppsServiceShape["list"] = (raw, principal) =>
       protect(
         Effect.gen(function* () {
           const input = yield* decode(PageAppsListInput, raw);
           yield* authorize(input.scopeSpaceId, principal);
-          yield* sql.withTransaction(purgeExpiredTrash);
+          yield* sql.withTransaction(
+            Effect.gen(function* () {
+              yield* purgeExpiredTrash;
+              if (input.scopeSpaceId === null && principal.kind === "local-user") {
+                yield* ensureBuiltInStarters;
+              }
+            }),
+          );
           const rows = input.includeTrashed
             ? yield* sql<AppRow>`SELECT * FROM page_apps WHERE scope_key = ${scopeKey(input.scopeSpaceId)}
                 ORDER BY updated_at DESC`
@@ -451,12 +520,85 @@ export const makePageAppsServiceShape = (deps: PageAppsServiceDeps) =>
         }),
       );
 
+    const listPublished: PageAppsServiceShape["listPublished"] = (raw, principal) =>
+      protect(
+        Effect.gen(function* () {
+          const input = yield* decode(PageAppsListPublishedInput, raw ?? {});
+          const scope = input.scopeSpaceId ?? null;
+          yield* authorize(scope, principal);
+          const key = scopeKey(scope);
+          const siteRows = yield* sql<{
+            app_id: string;
+            link_id: string;
+            visibility: "private" | "link" | "anyone";
+            published_revision: number;
+            published_at: string;
+            updated_at: string;
+          }>`SELECT s.page_id AS app_id, s.link_id, s.visibility, s.published_revision, s.published_at, s.updated_at
+            FROM pages_sites s
+            JOIN page_apps a ON a.app_id = s.page_id
+            WHERE s.kind = 'app' AND s.published_at IS NOT NULL AND s.published_revision IS NOT NULL
+              AND a.scope_key = ${key} AND a.trashed_at IS NULL
+            ORDER BY s.updated_at DESC`;
+          const pubRows = yield* sql<{
+            app_id: string;
+            entry_id: string;
+            app_revision: number;
+            created_at: string;
+          }>`SELECT p.app_id, p.entry_id, p.app_revision, a.updated_at AS created_at
+            FROM page_app_publications p
+            JOIN page_apps a ON a.app_id = p.app_id
+            WHERE a.scope_key = ${key} AND a.trashed_at IS NULL`;
+
+          const mapVisibility = (v: "private" | "link" | "anyone") =>
+            v === "anyone" ? "public" : v === "link" ? "unlisted" : "org";
+          const byAppId = new Map<
+            string,
+            | (typeof siteRows extends Array<infer _> ? never : never)
+            | {
+                appId: PageAppId;
+                slug: string;
+                url: string | null;
+                visibility: "public" | "unlisted" | "org";
+                liveRevision: number;
+                publishedAt: string;
+                updatedAt: string;
+              }
+          >();
+          for (const row of siteRows) {
+            byAppId.set(row.app_id, {
+              appId: PageAppId.makeUnsafe(row.app_id),
+              slug: row.link_id,
+              url: `/s/${row.link_id}`,
+              visibility: mapVisibility(row.visibility),
+              liveRevision: row.published_revision,
+              publishedAt: row.published_at,
+              updatedAt: row.updated_at,
+            });
+          }
+          for (const row of pubRows) {
+            if (byAppId.has(row.app_id)) continue;
+            byAppId.set(row.app_id, {
+              appId: PageAppId.makeUnsafe(row.app_id),
+              slug: row.entry_id,
+              url: null,
+              visibility: "unlisted",
+              liveRevision: row.app_revision,
+              publishedAt: row.created_at,
+              updatedAt: row.created_at,
+            });
+          }
+          return { publications: [...byAppId.values()] };
+        }),
+      );
+
     const read: PageAppsServiceShape["read"] = (raw, principal) =>
       protect(
         Effect.gen(function* () {
           const input = yield* decode(PageAppsReadInput, raw);
           const app = yield* authorizedApp(input.appId, principal);
-          const version = yield* versionRow(app.id, input.revision ?? app.revision);
+          const targetRevision = input.revision ?? app.pinnedRevision ?? app.revision;
+          const version = yield* versionRow(app.id, targetRevision);
           return {
             app,
             revision: version.revision,
@@ -521,6 +663,8 @@ export const makePageAppsServiceShape = (deps: PageAppsServiceDeps) =>
                   title: prepared.title,
                   description: prepared.description,
                   revision: 1,
+                  pinnedRevision: null,
+                  starterId: null,
                   capabilities: prepared.capabilities,
                   favorite: false,
                   thumbnail: null,
@@ -581,7 +725,7 @@ export const makePageAppsServiceShape = (deps: PageAppsServiceDeps) =>
                       ...next,
                       title: prepared.title,
                       htmlChars: prepared.html.length,
-                      thumbnail: null,
+                      thumbnail: current.thumbnail,
                     };
                     version = { html: prepared.html, operation: "rename" };
                     break;
@@ -590,6 +734,7 @@ export const makePageAppsServiceShape = (deps: PageAppsServiceDeps) =>
                     const old = yield* versionRow(current.id, input.revision);
                     app = {
                       ...next,
+                      pinnedRevision: null,
                       title: old.title,
                       description: old.description,
                       capabilities: JSON.parse(old.capabilities_json),
@@ -597,6 +742,17 @@ export const makePageAppsServiceShape = (deps: PageAppsServiceDeps) =>
                       thumbnail: null,
                     };
                     version = { html: old.html, operation: `restore-version:${input.revision}` };
+                    break;
+                  }
+                  case "pin-version": {
+                    if (input.revision !== null) {
+                      yield* versionRow(current.id, input.revision);
+                    }
+                    app = {
+                      ...current,
+                      pinnedRevision: input.revision,
+                      updatedAt: timestamp,
+                    };
                     break;
                   }
                   case "favorite":
@@ -615,6 +771,11 @@ export const makePageAppsServiceShape = (deps: PageAppsServiceDeps) =>
                     app = { ...next, spaceId: input.spaceId };
                     break;
                   case "trash":
+                    if (current.starterId) {
+                      yield* sql`INSERT INTO page_app_dismissed_starters (starter_id, dismissed_at)
+                        VALUES (${current.starterId}, ${timestamp})
+                        ON CONFLICT(starter_id) DO NOTHING`;
+                    }
                     app = { ...next, trashedAt: timestamp };
                     break;
                   case "restore":
@@ -641,6 +802,63 @@ export const makePageAppsServiceShape = (deps: PageAppsServiceDeps) =>
           PageAppStoredConsent
         >;
       });
+
+    const generateCover: PageAppsServiceShape["generateCover"] = (raw, principal) =>
+      protect(
+        Effect.gen(function* () {
+          const input = yield* decode(PageAppsGenerateCoverInput, raw);
+          const app = yield* authorizedApp(input.appId, principal);
+          if (app.trashedAt !== null) {
+            return yield* Effect.fail(failure("revoked", "This 应用页 is in the trash"));
+          }
+          if (!deps.media) {
+            return yield* Effect.fail(
+              failure("unavailable", "当前环境暂未接入图片生成服务，请先登录 Moss 账号。"),
+            );
+          }
+          const customPrompt = input.prompt?.trim();
+          const prompt =
+            customPrompt && customPrompt.length > 0
+              ? customPrompt
+              : `Clean editorial app cover illustration for "${app.title}"${
+                  app.description ? ` (${app.description.slice(0, 140)})` : ""
+                }. Minimalist modern product aesthetic, soft warm studio lighting, refined tactile UI mood, harmonious palette, wide 16:10 landscape composition, no watermarks, no cluttered text.`;
+          const generated = yield* Effect.tryPromise({
+            try: () =>
+              deps.media!.generate({
+                appId: app.id,
+                viewerId: "owner",
+                kind: "image",
+                args: {
+                  prompt,
+                  modelId: MOSS_DEFAULT_IMAGE_MODEL_ID,
+                  aspectRatio: "16:9",
+                  waitMs: 30_000,
+                  idempotencyKey: `cover_${newId()}`,
+                },
+              }),
+            catch: (error) => {
+              const mapped = fromCapabilityError(error);
+              return failure(mapped.code, mapped.message);
+            },
+          });
+          const imageDataUrl = generated.dataUrls?.[0] ?? generated.url;
+          if (generated.status !== "succeeded" || !imageDataUrl) {
+            return yield* Effect.fail(
+              failure(
+                "upstream_error",
+                generated.errorMessage?.trim() || "封面生成未完成，请稍后重试。",
+              ),
+            );
+          }
+          return {
+            app,
+            imageDataUrl,
+            modelId: generated.modelId,
+            prompt,
+          };
+        }),
+      );
 
     const consent: PageAppsServiceShape["consent"] = (raw, viewer) =>
       protect(
@@ -809,9 +1027,11 @@ export const makePageAppsServiceShape = (deps: PageAppsServiceDeps) =>
 
     return {
       list,
+      listPublished,
       read,
       versions,
       mutate,
+      generateCover,
       consent,
       call,
       watch,

@@ -1242,6 +1242,7 @@ function DataSpaceWorkspace({
         <SpaceCanvasChatDockHost
           artifact={activeArtifact}
           containerRef={workspaceHostRef}
+          floatingLauncher={activeArtifact?.kind === "app" ? "compact" : "none"}
           keepItemOpen
         >
           {(dock) => {
@@ -1362,6 +1363,7 @@ function DataSpaceWorkspace({
                   ) : openedItem.source.type === "app" ? (
                     <SpaceAppViewer
                       item={openedItem}
+                      dock={dock}
                       onContinueInChat={(item) => void continueInChat(item)}
                     />
                   ) : (

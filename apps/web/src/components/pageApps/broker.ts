@@ -64,6 +64,39 @@ export interface PageAppConsentPrompt {
   }>;
 }
 
+export interface PageAppFrameSelection {
+  readonly text: string;
+  readonly rect: {
+    readonly x: number;
+    readonly y: number;
+    readonly width: number;
+    readonly height: number;
+  };
+  readonly anchor: {
+    readonly target: string;
+    readonly label: string;
+  } | null;
+}
+
+export interface PageAppPickedElement {
+  readonly selector: string;
+  readonly tagName: string;
+  readonly role: string | null;
+  readonly name: string | null;
+  readonly text: string | null;
+  readonly html: string | null;
+  readonly rect: {
+    readonly x: number;
+    readonly y: number;
+    readonly width: number;
+    readonly height: number;
+  };
+  readonly viewport: {
+    readonly width: number;
+    readonly height: number;
+  };
+}
+
 export interface PageAppBrokerDeps {
   readonly post: (message: PageAppShellMessage) => void;
   readonly client: Pick<PageAppsClient, "call" | "watch" | "consent">;
@@ -78,6 +111,10 @@ export interface PageAppBrokerDeps {
   readonly onOpenSidechat?: (
     input: PageAppChatOpenSidechatInput,
   ) => Promise<PageAppChatOpenSidechatResult>;
+  readonly onSelectionChange?: (selection: PageAppFrameSelection | null) => void;
+  readonly onElementPicked?: (element: PageAppPickedElement) => void;
+  readonly onPickEnded?: (reason: "escape" | "cancelled") => void;
+  readonly onTopHeadingChange?: (hasTopHeading: boolean) => void;
   readonly onResize?: (height: number) => void;
   readonly onConsentChange?: (consent: Readonly<Record<string, PageAppStoredConsent>>) => void;
   readonly desktopHost?: boolean;
@@ -280,6 +317,19 @@ export class PageAppBroker {
   }
 
   /** Feed one message that already passed the source/origin check. */
+  setPickMode(
+    active: boolean,
+    theme?: { readonly accent: string; readonly surface: string; readonly text: string },
+  ): void {
+    this.send({ kind: "pick-mode", active, ...(theme ? { theme } : {}) });
+  }
+
+  syncMarkers(
+    markers: ReadonlyArray<{ readonly ordinal: number; readonly selector: string }>,
+  ): void {
+    this.send({ kind: "sync-markers", markers });
+  }
+
   handleMessage(raw: unknown): void {
     if (this.disposed) return;
     if (typeof raw === "string" && raw.length > MAX_MESSAGE_CHARS) return;
@@ -294,6 +344,24 @@ export class PageAppBroker {
         if (Number.isFinite(message.height) && message.height >= 0)
           this.deps.onResize?.(Math.min(message.height, 100_000));
         return;
+      case "selection": {
+        const trimmed = message.text.trim();
+        if (!trimmed || !message.rect) {
+          this.deps.onSelectionChange?.(null);
+          return;
+        }
+        this.deps.onSelectionChange?.({
+          text: trimmed,
+          rect: {
+            x: Math.max(0, message.rect.x),
+            y: Math.max(0, message.rect.y),
+            width: Math.max(1, message.rect.width),
+            height: Math.max(1, message.rect.height),
+          },
+          anchor: message.anchor ?? null,
+        });
+        return;
+      }
       case "unwatch": {
         const cancel = this.watches.get(message.id);
         this.watches.delete(message.id);
@@ -305,6 +373,24 @@ export class PageAppBroker {
         return;
       case "watch":
         void this.handleWatch(message.id, message.capability, message.method, message.args);
+        return;
+      case "heading":
+        this.deps.onTopHeadingChange?.(message.hasTopHeading);
+        return;
+      case "pick-ended":
+        this.deps.onPickEnded?.(message.reason ?? "escape");
+        return;
+      case "element-picked":
+        this.deps.onElementPicked?.({
+          selector: message.selector,
+          tagName: message.tagName,
+          role: message.role,
+          name: message.name,
+          text: message.text,
+          html: message.html ?? null,
+          rect: message.rect,
+          viewport: message.viewport,
+        });
         return;
     }
   }
@@ -372,5 +458,6 @@ export class PageAppBroker {
     this.controller.abort();
     for (const cancel of this.watches.values()) cancel();
     this.watches.clear();
+    this.deps.onSelectionChange?.(null);
   }
 }

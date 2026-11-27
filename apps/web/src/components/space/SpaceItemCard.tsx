@@ -24,6 +24,7 @@ import { ensureNativeApi } from "~/nativeApi";
 
 import { ComposerPickerMenuPopup } from "../chat/ComposerPickerMenuPopup";
 import { LocalImagePreview } from "../LocalImagePreview";
+import { PageAppThumbnail } from "../pageApps/PageAppThumbnail";
 import { SidebarIconButton } from "../SidebarIconButton";
 import { DashboardThumbnail } from "../spaceTypes/dashboard/DashboardPanels";
 import { useSpaceItemMeta } from "../spaceTypes/dashboard/useDashboardItemMeta";
@@ -545,17 +546,8 @@ function SpaceItemPreview({
       </PreviewFrame>
     );
   }
-  if (!failed && item.source.type === "app" && item.source.app.thumbnail) {
-    return (
-      <PreviewFrame kind="app" className="block bg-muted/40">
-        <img
-          src={item.source.app.thumbnail}
-          alt=""
-          className="h-full w-full object-cover"
-          onError={() => setFailed(true)}
-        />
-      </PreviewFrame>
-    );
+  if (item.source.type === "app") {
+    return <PageAppThumbnail app={item.source.app} />;
   }
   if (item.source.type === "page" && item.kind === "page") {
     return <PageCardPreview page={item.source.page} />;

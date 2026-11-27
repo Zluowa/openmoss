@@ -1263,18 +1263,37 @@ export class StandalonePageAppWindowManager {
       entry.backAt = undefined;
       scheduleAutoReload("away");
     });
-    browserWindow.on("resize", syncBounds);
-    browserWindow.on("move", () => {
+    let boundsSaveTimer: ReturnType<typeof setTimeout> | null = null;
+    const persistBounds = () => {
       if (browserWindow.isDestroyed() || entry.retired) return;
+      if (browserWindow.isMaximized() || browserWindow.isMinimized()) return;
       const existingStyle = this.store.getWindowStyle(styleKey);
       this.store.setWindowStyle(styleKey, {
         ...existingStyle,
         bounds: browserWindow.getBounds(),
         updatedAt: new Date().toISOString(),
       });
+    };
+    const schedulePersistBounds = () => {
+      if (boundsSaveTimer) clearTimeout(boundsSaveTimer);
+      boundsSaveTimer = setTimeout(() => {
+        boundsSaveTimer = null;
+        persistBounds();
+      }, 150);
+    };
+
+    browserWindow.on("resize", () => {
+      syncBounds();
+      schedulePersistBounds();
     });
+    browserWindow.on("move", schedulePersistBounds);
 
     browserWindow.on("close", (event) => {
+      if (boundsSaveTimer) {
+        clearTimeout(boundsSaveTimer);
+        boundsSaveTimer = null;
+      }
+      persistBounds();
       // Only installed apps with active tray hide on close; preview windows always close.
       if (session.isInstalled && session.tray && !session.tray.isDestroyed() && !entry.retired) {
         event.preventDefault();

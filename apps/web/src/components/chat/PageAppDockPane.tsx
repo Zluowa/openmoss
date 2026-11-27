@@ -76,6 +76,7 @@ export function PageAppDockPane(props: {
         appPageId={appId}
         mode="full"
         topBar={false}
+        hostThreadId={props.threadId}
         onTitleChange={props.onTitleChange}
         onCloseTab={props.onClose}
         onDeleted={props.onClose}

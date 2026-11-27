@@ -68,7 +68,9 @@ describe("AppPageFrame header", () => {
       // Title trigger matches Claude's clean borderless ghost style without a leading icon.
       expect(titleTrigger.element().querySelector("svg")).toBeNull();
       const actions = page.getByTestId("page-app-header-actions").element();
-      expect(actions.querySelectorAll("button").length).toBe(1);
+      expect(actions.querySelector("[data-browser-annotate]")).not.toBeNull();
+      expect(actions.querySelector("[data-page-comments-control]")).not.toBeNull();
+      expect(actions.querySelectorAll("button").length).toBe(4);
     } finally {
       await screen.unmount();
     }

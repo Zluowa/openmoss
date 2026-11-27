@@ -225,6 +225,54 @@ describe("windowManager", () => {
       vi.advanceTimersByTime(5_000);
       expect(entry.session.takeGesture?.()).toBe(false);
 
+      // Resize persists bounds after debounce and close flushes immediately.
+      const setWindowStyle = vi.fn();
+      const boundsManager = new StandalonePageAppWindowManager({
+        store: {
+          getWindowStyle: vi.fn(() => undefined),
+          setWindowStyle,
+          findInstalledByInstallId: vi.fn(() => undefined),
+          findInstalledByAppId: vi.fn(() => undefined),
+        } as never,
+        permissions: {
+          evaluate: vi.fn(() => ({ state: "prompt", effectiveSource: "none" })),
+        } as never,
+        dialogs: {} as never,
+        executor: {
+          registerSession: vi.fn(),
+          unregisterSession: vi.fn(),
+        } as never,
+        preloadPath: "D:/fake/windowPreload.mjs",
+      });
+      const boundsEntry = boundsManager.openOrFocus({
+        appId: "app-bounds" as never,
+        installId: null,
+        accountId: "acct-1",
+        orgId: "org-1",
+        appName: "Bounds App",
+        isInstalled: false,
+        revision: 1,
+        contentHash: "hash-1",
+        declaredPermissions: [],
+        trustKind: "owner",
+        targetUrl: "http://127.0.0.1:3000/apps/app-bounds",
+        expectedFrameOrigin: "http://127.0.0.1:3000",
+        iconPath: null,
+        referenceText: "http://127.0.0.1:3000/apps/app-bounds",
+        executablePath: "D:/fake/Moss.exe",
+        hidden: true,
+      });
+      (boundsEntry.browserWindow as unknown as EventEmitter).emit("resize");
+      expect(setWindowStyle).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(160);
+      expect(setWindowStyle).toHaveBeenCalledTimes(1);
+
+      (boundsEntry.browserWindow as unknown as EventEmitter).emit("close", {
+        preventDefault: vi.fn(),
+      });
+      expect(setWindowStyle).toHaveBeenCalledTimes(2);
+
+      (boundsEntry.browserWindow as unknown as EventEmitter).emit("closed");
       (entry.browserWindow as unknown as EventEmitter).emit("closed");
     } finally {
       vi.useRealTimers();

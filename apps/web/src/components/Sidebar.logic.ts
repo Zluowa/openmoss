@@ -580,9 +580,69 @@ export function pruneProjectThreadListPagingForCollapsedProjects<
   return changed ? nextThreadListExtraPagesByProjectCwd : threadListExtraPagesByProjectCwd;
 }
 
+export type SidebarThreadPresentationState =
+  | "selected"
+  | "app-companion"
+  | "app-origin"
+  | "default";
+
+/**
+ * Resolves the sidebar presentation state for a thread row so chatting inside
+ * a main conversation page (`selected`) stays visually distinct from chatting inside
+ * a standalone Page App (`app-companion`) or revisiting an app-origin thread (`app-origin`).
+ */
+export function resolveSidebarThreadPresentationState(input: {
+  readonly isActive: boolean;
+  readonly isAppCompanionActive: boolean;
+  readonly isAppOrigin: boolean;
+}): SidebarThreadPresentationState {
+  if (input.isActive) return "selected";
+  if (input.isAppCompanionActive) return "app-companion";
+  if (input.isAppOrigin) return "app-origin";
+  return "default";
+}
+
+/**
+ * Augments the sidebar thread status pill with live companion dock state (busy/unread)
+ * when a standalone Page App companion thread does not yet have a server-synced pill.
+ */
+export function resolveCompanionAugmentedThreadStatus(input: {
+  readonly baseStatus: ThreadStatusPill | null;
+  readonly isAppCompanionActive: boolean;
+  readonly dockBusy?: boolean | undefined;
+  readonly dockHasUnread?: boolean | undefined;
+}): ThreadStatusPill | null {
+  if (!input.isAppCompanionActive) return input.baseStatus;
+  if (input.dockBusy) {
+    if (input.baseStatus && input.baseStatus.pulse) return input.baseStatus;
+    return {
+      label: "Working",
+      colorClass: "text-foreground/70",
+      dotClass: "bg-foreground/70",
+      pulse: true,
+      dismissible: false,
+    };
+  }
+  if (input.baseStatus) return input.baseStatus;
+  if (input.dockHasUnread) {
+    return {
+      label: "Completed",
+      colorClass: "text-[var(--color-text-accent)]",
+      dotClass: "bg-[var(--color-text-accent)]",
+      pulse: false,
+      dismissible: false,
+    };
+  }
+  return null;
+}
+
+export const SIDEBAR_ROW_APP_COMPANION_CLASS_NAME =
+  "text-foreground bg-[color-mix(in_srgb,var(--foreground)_3.5%,transparent)] ring-1 ring-inset ring-[color:color-mix(in_srgb,var(--foreground)_10%,transparent)] dark:bg-[color-mix(in_srgb,var(--foreground)_6%,transparent)] dark:ring-[color:color-mix(in_srgb,var(--foreground)_14%,transparent)]";
+
 export function resolveThreadRowClassName(input: {
   isActive: boolean;
   isSelected: boolean;
+  isAppCompanionActive?: boolean;
   isSnoozeReminder?: boolean;
 }): string {
   // The in-flow trailing cluster keeps metadata and shortcut hints clear of the title.
@@ -598,6 +658,15 @@ export function resolveThreadRowClassName(input: {
 
   if (input.isActive) {
     return cn(baseClassName, SIDEBAR_ROW_ACTIVE_CLASS_NAME);
+  }
+
+  if (input.isAppCompanionActive) {
+    return cn(
+      baseClassName,
+      SIDEBAR_ROW_APP_COMPANION_CLASS_NAME,
+      SIDEBAR_ROW_HOVER_CLASS_NAME,
+      input.isSnoozeReminder === true && SIDEBAR_ROW_SNOOZE_REMINDER_CLASS_NAME,
+    );
   }
 
   return cn(

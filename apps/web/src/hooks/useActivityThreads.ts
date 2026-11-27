@@ -22,7 +22,7 @@ import { useStore, type AppState } from "../store";
 import { createSidebarThreadSummariesSelector, isSidebarThreadVisible } from "../storeSelectors";
 import type { SidebarThreadSummary } from "../types";
 import { useWorkspacePathsStore } from "../workspacePathsStore";
-import { usePageAssistantThreadIds } from "./usePageAssistantThreadIds";
+import { useNonAppPageAssistantThreadIds } from "./usePageAssistantThreadIds";
 
 interface ActivityThreads {
   readonly sidebarThreads: readonly SidebarThreadSummary[];
@@ -121,7 +121,7 @@ export function useActivityThreads({
   const sidebarThreads = useStore(selectSidebarThreads);
   const coordinatorThreadIds = useCoordinatorThreadIds();
   const summariesByProjectId = useProjectAgentSummariesStore((state) => state.summariesByProjectId);
-  const itemChatThreadIds = usePageAssistantThreadIds();
+  const itemChatThreadIds = useNonAppPageAssistantThreadIds();
   return useMemo(
     () =>
       deriveActivityThreads([

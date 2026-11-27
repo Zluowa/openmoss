@@ -8,6 +8,9 @@ import type { ThreadId } from "@moss/contracts";
 /** Three live presentation states of the non-unmounting canvas-bound AI dock. */
 export type SpaceCanvasDockState = "collapsed" | "pip" | "docked";
 
+/** Non-invasive floating launcher chrome shown in place of the collapsed bar for apps. */
+export type SpaceCanvasFloatingLauncherMode = "none" | "minimized" | "compact";
+
 /** Supported 资料空间 / Artifacts editor kinds. */
 export type SpaceArtifactKind =
   | "page"

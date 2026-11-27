@@ -355,4 +355,279 @@ describe("frame runtime", () => {
     });
     expect(await speakPromise).toMatchObject({ spoken: true, source: "moss" });
   });
+
+  it("reports non-empty non-editable frame text selection bounds and clears on collapse without mutating DOM", async () => {
+    const docListeners = new Map<string, Array<() => void>>();
+    const posted: Array<Record<string, unknown>> = [];
+    const parent = {
+      postMessage: (message: Record<string, unknown>, origin: string) => {
+        expect(origin).toBe(PARENT);
+        posted.push(structuredClone(message));
+      },
+    };
+    let currentSelection: {
+      isCollapsed: boolean;
+      rangeCount: number;
+      toString: () => string;
+      anchorNode: unknown;
+      focusNode: unknown;
+      getRangeAt: () => {
+        commonAncestorContainer: unknown;
+        getBoundingClientRect: () => { left: number; top: number; width: number; height: number };
+      };
+    } | null = null;
+    const windowObj: Record<string, unknown> = {
+      parent,
+      addEventListener: () => undefined,
+      getSelection: () => currentSelection,
+    };
+    windowObj.window = windowObj;
+    const context = {
+      window: windowObj,
+      document: {
+        readyState: "complete",
+        documentElement: { scrollHeight: 10 },
+        body: { scrollHeight: 10 },
+        addEventListener: (type: string, cb: () => void) => {
+          const list = docListeners.get(type) ?? [];
+          list.push(cb);
+          docListeners.set(type, list);
+        },
+      },
+      setTimeout,
+      clearTimeout,
+      crypto: webcrypto,
+      Promise,
+      Map,
+      Object,
+      JSON,
+      Math,
+      Uint8Array,
+      Array,
+      String,
+      TypeError,
+    };
+    runInNewContext(buildPageAppFrameRuntime({ parentOrigin: PARENT }), context);
+    currentSelection = {
+      isCollapsed: false,
+      rangeCount: 1,
+      toString: () => "  写下明天需要顺延的事项  ",
+      anchorNode: { nodeType: 1, tagName: "P", id: "item-3", closest: () => null },
+      focusNode: { nodeType: 1, tagName: "P", id: "item-3", closest: () => null },
+      getRangeAt: () => ({
+        commonAncestorContainer: {
+          nodeType: 1,
+          tagName: "P",
+          id: "item-3",
+          closest: () => null,
+        },
+        getBoundingClientRect: () => ({ left: 120.4, top: 84.2, width: 196.1, height: 22.8 }),
+      }),
+    };
+    for (const cb of docListeners.get("mouseup") ?? []) cb();
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(posted.at(-1)).toMatchObject({
+      protocol: "moss-app/1",
+      kind: "selection",
+      text: "写下明天需要顺延的事项",
+      rect: { x: 120, y: 84, width: 196, height: 23 },
+      anchor: { target: "p#item-3", label: "写下明天需要顺延的事项" },
+    });
+
+    currentSelection = {
+      ...currentSelection,
+      isCollapsed: true,
+      toString: () => "",
+    };
+    for (const cb of docListeners.get("selectionchange") ?? []) cb();
+    await new Promise((resolve) => setTimeout(resolve, 110));
+    expect(posted.at(-1)).toMatchObject({
+      protocol: "moss-app/1",
+      kind: "selection",
+      text: "",
+      rect: null,
+      anchor: null,
+    });
+  });
+
+  it("handles pick-mode element capture, Escape cancellation, markers, and top heading detection", () => {
+    const docListeners = new Map<string, ((event: unknown) => void)[]>();
+    const winListeners = new Map<string, ((event: unknown) => void)[]>();
+    const posted: Array<Record<string, unknown>> = [];
+    const parent = {
+      postMessage: (message: Record<string, unknown>) => {
+        posted.push(structuredClone(message));
+      },
+    };
+    const fakeTarget = {
+      nodeType: 1,
+      id: "chapter-card",
+      tagName: "SECTION",
+      textContent: "  第一章：云端阅读器  ",
+      outerHTML: '<section id="chapter-card">第一章：云端阅读器</section>',
+      parentElement: null,
+      closest: () => null,
+      getAttribute: (name: string) => (name === "role" ? "region" : null),
+      getBoundingClientRect: () => ({
+        left: 48,
+        top: 96,
+        right: 368,
+        width: 320,
+        height: 120,
+      }),
+    };
+    const appended: Array<{
+      attrs: Record<string, string>;
+      style: Record<string, string>;
+      children: unknown[];
+      firstChild: unknown;
+      removeChild: (child: unknown) => void;
+      appendChild: (child: unknown) => void;
+    }> = [];
+    const makeEl = () => {
+      const children: unknown[] = [];
+      return {
+        attrs: {} as Record<string, string>,
+        style: {} as Record<string, string>,
+        children,
+        get firstChild() {
+          return children[0] ?? null;
+        },
+        setAttribute(k: string, v: string) {
+          this.attrs[k] = v;
+        },
+        appendChild(c: unknown) {
+          children.push(c);
+        },
+        removeChild(c: unknown) {
+          const i = children.indexOf(c);
+          if (i >= 0) children.splice(i, 1);
+        },
+      };
+    };
+    const headingEl = {
+      textContent: "静读 · 小说阅读器",
+      getBoundingClientRect: () => ({ top: 24, width: 220, height: 32 }),
+    };
+    const windowObj: Record<string, unknown> = {
+      parent,
+      innerWidth: 1280,
+      innerHeight: 800,
+      addEventListener: (type: string, cb: (event: unknown) => void) => {
+        const list = winListeners.get(type) ?? [];
+        list.push(cb);
+        winListeners.set(type, list);
+      },
+    };
+    windowObj.window = windowObj;
+    const context = {
+      window: windowObj,
+      document: {
+        readyState: "complete",
+        documentElement: {
+          scrollHeight: 600,
+          style: {} as Record<string, string>,
+          appendChild: (node: unknown) => appended.push(node as (typeof appended)[number]),
+        },
+        body: {
+          scrollHeight: 600,
+          querySelector: () => null,
+          querySelectorAll: (sel: string) => (sel === "h1, h2" ? [headingEl] : []),
+        },
+        createElement: makeEl,
+        elementFromPoint: () => fakeTarget,
+        querySelectorAll: (sel: string) => (sel === "#chapter-card" ? [fakeTarget] : []),
+        querySelector: (sel: string) => (sel === "#chapter-card" ? fakeTarget : null),
+        addEventListener: (type: string, cb: (event: unknown) => void) => {
+          const list = docListeners.get(type) ?? [];
+          list.push(cb);
+          docListeners.set(type, list);
+        },
+      },
+      setTimeout,
+      clearTimeout,
+      crypto: webcrypto,
+      Promise,
+      Map,
+      Object,
+      JSON,
+      Math,
+      Uint8Array,
+      Array,
+      String,
+      TypeError,
+    };
+    runInNewContext(buildPageAppFrameRuntime({ parentOrigin: PARENT }), context);
+
+    expect(posted.some((m) => m.kind === "heading" && m.hasTopHeading === true)).toBe(true);
+
+    const deliver = (data: unknown) => {
+      for (const cb of winListeners.get("message") ?? [])
+        cb({ data, origin: PARENT, source: parent });
+    };
+    deliver({
+      protocol: "moss-app/1",
+      kind: "pick-mode",
+      active: true,
+      theme: {
+        accent: "rgb(42, 120, 214)",
+        surface: "rgb(255, 255, 255)",
+        text: "rgb(17, 17, 17)",
+      },
+    });
+
+    for (const cb of docListeners.get("mousemove") ?? []) {
+      cb({ clientX: 120, clientY: 130 });
+    }
+    expect(
+      appended.some(
+        (node) =>
+          node.attrs["data-moss-pick-overlay"] === "true" &&
+          String(node.style.cssText || node.style.border || "").includes("rgb(42, 120, 214)"),
+      ),
+    ).toBe(true);
+
+    let prevented = false;
+    for (const cb of docListeners.get("click") ?? []) {
+      cb({
+        clientX: 120,
+        clientY: 130,
+        target: fakeTarget,
+        preventDefault: () => {
+          prevented = true;
+        },
+        stopPropagation: () => undefined,
+      });
+    }
+    expect(prevented).toBe(true);
+    expect(posted.at(-1)).toMatchObject({
+      protocol: "moss-app/1",
+      kind: "element-picked",
+      selector: "#chapter-card",
+      tagName: "section",
+      role: "region",
+      text: "第一章：云端阅读器",
+      rect: { x: 48, y: 96, width: 320, height: 120 },
+    });
+
+    deliver({
+      protocol: "moss-app/1",
+      kind: "sync-markers",
+      markers: [{ ordinal: 1, selector: "#chapter-card" }],
+    });
+    expect(
+      appended.some(
+        (node) => node.attrs["data-moss-marker-layer"] === "true" && node.children.length === 1,
+      ),
+    ).toBe(true);
+
+    for (const cb of docListeners.get("keydown") ?? []) {
+      cb({ key: "Escape", preventDefault: () => undefined, stopPropagation: () => undefined });
+    }
+    expect(posted.at(-1)).toMatchObject({
+      protocol: "moss-app/1",
+      kind: "pick-ended",
+      reason: "escape",
+    });
+  });
 });

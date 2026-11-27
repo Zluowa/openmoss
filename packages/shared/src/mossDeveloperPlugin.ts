@@ -25,8 +25,8 @@ export const MOSS_DEVELOPER_STARTER_PROMPTS: readonly MossDeveloperStarterPrompt
     id: "ai-reader",
     label: { en: "AI Companion Reader", zhCN: "做个 AI 伴读阅读器" },
     prompt: {
-      en: "Build a clean immersive reader Moss Page App where I can import articles or books, highlight passages in 3 colors, ask Moss questions inline, listen via native voice TTS, and keep reading notes in a calm side drawer without external API keys.",
-      zhCN: "帮我做一个沉浸式 AI 阅读器应用页：支持导入文章或书稿、三色划线高亮、选中段落直接「问 Moss」、原生语音朗读，并在侧边伴读抽屉里记笔记，不要让我配任何外部 API Key。",
+      en: "Build a pure, calm WeChat-Read-style immersive reader Moss Page App where I can import articles or books, read with warm paper typography, highlight passages, listen via native voice TTS, and naturally use Moss's built-in corner bubble & selection comment card for discussion—without any bespoke AI sidebar or external API keys.",
+      zhCN: "帮我做一个微信阅读风格的纯净沉浸式阅读器应用页：支持导入文章或书稿、暖纸排版与章节目录、书内划线高亮与原生语音朗读，并直接搭配 Moss 自带的右下角浮窗气泡和划词评论提问，页面内部不要塞入厚重 AI 侧边栏，也不要让我配任何外部 API Key。",
     },
   },
   {
@@ -97,7 +97,7 @@ export const MOSS_DEVELOPER_PLUGIN_COPY: {
       "Default-composed Moss UI Kit primitives & widgets (moss-ui-kit) + Developer API Key handbook",
     ],
     defaultPrompt: [
-      "Build a WeChat-Read-style AI companion reader Page App with highlight-to-ask, voice read-aloud, and zero external keys",
+      "Build a pure WeChat-Read-style reader Page App with chapter navigation, voice read-aloud, and zero external keys (keeping AI Q&A inside Moss's universal floating bubble & selection comment card)",
       "Build a smart meeting room Page App with live agenda notes, native voice transcription, and a Mossbot meeting bar",
       "Build a zero-key AI creative studio Page App using moss-ui-kit, Moss db, ai, media, and downloads",
     ],
@@ -115,7 +115,7 @@ export const MOSS_DEVELOPER_PLUGIN_COPY: {
       "默认复用 Moss UI Kit 原生组件与插件（moss-ui-kit）及开发者 API Key 指引",
     ],
     defaultPrompt: [
-      "帮我做一个微信阅读风格的 AI 伴读阅读器应用页，支持划线高亮、「问 Moss」侧边抽屉与语音朗读，无需外部密钥",
+      "帮我做一个微信阅读风格的纯净阅读器应用页：支持章节目录、书内高亮与原生语音朗读，划词评论和提问直接交给 Moss 通用浮窗气泡，无需外部密钥",
       "帮我搭一个智能会议室应用页：支持多人议程记录、实时语音转写，并带一键「拉 Moss 加入会议」的 Mossbot 控制条",
       "帮我做一个零外部密钥的 AI 灵感工坊应用页，默认使用 Moss UI Kit 组件、原生 AI、生图与数据库自动保存",
     ],
@@ -214,17 +214,17 @@ async function bootApp() {
 - **\`MossToast\`**：轻量操作反馈提示条。
 - **\`MossMarkdown\`**：安全渲染 AI 回复、纪要与文档正文。
 
-### B. 可插拔原生功能部件（Native Feature Widgets — 按场景直接挂载）
+### B. 可插拔原生功能部件（Native Feature Widgets — 宿主已自带通用浮窗与划词评论，按需特化挂载）
 
-- **\`MossSelectionAsk\`**：监听目标正文容器划词选中，提供三色高亮标记与「划线提问 / 问 Moss」浮动操作，连接 \`moss.use("chat")\`（自动回退 \`ai\`）。
-- **\`MossCompanionDrawer\`**：可收起的 AI 伴读/工作侧边抽屉，记录划词解读、摘要与笔记。
-- **\`MossbotMeetingBar\`**：可插拔会议控制条，提供「拉 Moss 加入会议」与「生成会议纪要」，连接 \`moss.use("mossbot")\`。
+> 注意：**所有 Moss 应用页（包括微信阅读、智能会议室等任意应用）外层宿主壳已自动提供统一的右下角可收起 Moss 浮窗气泡/对话条，以及应用内划词「评论 → 发送给 Moss」功能**。做阅读器或常规工具时保持页面自身排版纯净，不必再另起一套侧边 AI 聊天栏。仅当用户**明确提出**需要页面内置的专项交互控件时，再选用：
+- **\`MossbotMeetingBar\`**：会议室可插拔会议控制条，提供「拉 Moss 加入会议」与「生成会议纪要」，连接 \`moss.use("mossbot")\`。
 - **\`MossVoiceButton\`** 与 **\`MossRealtimeVoiceBar\`**：与 Moss 对话语音控件一脉相承的麦克风、声波、TTS 朗读与实时语音切换部件，连接 \`moss.use("voice")\`（支持语音转文字、朗读与实时语音参会）。
 - **\`MossMediaTrigger\`**：轻量内联生图/生视频触发器，连接 \`moss.use("media")\`。
+- **\`MossSelectionAsk\`** / **\`MossCompanionDrawer\`**（仅当用户明确要求应用内置伴读栏或自定义三色高亮提问 UI 时再选用的特化部件；常规场景优先直接使用宿主非侵入式划词评论与右下角气泡）。
 
 **组装策略**：
-- 通用效率应用 / 工具 / 看板：**直接用 \`MossCard\`、\`MossTabs\`、\`MossButton\`、\`MossBadge\`、\`MossDialog\`、\`MossToast\`、\`MossMarkdown\` 组合**，开箱即与 Moss 客户端浑然一体。
-- 已有特定产品风格的应用（如仿微信阅读、极客会议室）：保留宿主自身的版式与阅读排版，**仅无侵入挂载 \`MossSelectionAsk\` / \`MossCompanionDrawer\` / \`MossbotMeetingBar\` / \`MossVoiceButton\` / \`MossRealtimeVoiceBar\`**，借助 Shadow DOM 隔离确保零样式冲突。`,
+- 通用效率应用 / 工具 / 看板：**直接用 \`MossCard\`、\`MossTabs\`、\`MossButton\`、\`MossBadge\`、\`MossDialog\`、\`MossToast\`、\`MossMarkdown\` 组合**，配合宿主通用的右下角 Moss 浮窗气泡，开箱即与 Moss 客户端浑然一体。
+- 微信阅读 / 智能会议室等自有产品风格的应用：保留应用自身的书架、正文排版或会议议程界面，AI 对话与划词提问默认交给外层通用的 Moss 气泡与划词评论卡；仅按需挂载 \`MossbotMeetingBar\` / \`MossVoiceButton\` / \`MossRealtimeVoiceBar\`（借助 Shadow DOM 隔离确保零样式冲突）。`,
   },
   {
     relativePath: "references/developer-api-key-and-standalone.md",
@@ -285,7 +285,7 @@ export const MOSS_DEVELOPER_SKILLS: readonly MossDeveloperSkillSpec[] = [
    - **默认复用 Moss 原生 UI 组件（\`moss-ui-kit\`）**：搭建通用应用界面时，默认直接导入并组合 \`moss-ui-kit\` 的基础组件（\`MossButton\`、\`MossCard\`、\`MossTabs\`、\`MossDrawer\`、\`MossDialog\`、\`MossBadge\`、\`MossToast\`、\`MossMarkdown\`），开箱即符合 Moss 纸墨设计规范，浅色/深色自动适配、零临时硬编码样式；需要保留特殊视觉风格（如仿微信阅读）时，用 \`moss-ui-kit\` 的 Shadow DOM 隔离功能部件无侵入增强。
    - **先渲染、后连接能力**：页面首帧立即渲染完整骨架与本地交互，再异步 \`await moss.use(...)\` 点亮能力；对 \`null\`（如未声明、访客模式或桌面端独占能力）和每个错误码做优雅兜底，绝不让白屏或未捕获异常出现。
    - **无假功能、无占位符**：每个按钮都有真实动作；数据诚实（示例数据清楚标明「示例」）；语义化 HTML（\`<button type="button">\`、\`aria-label\`、\`role="status"\`、尊重 \`prefers-reduced-motion\`，360px 窄屏无横向溢出）。
-   - **不画假 Moss 外壳**：Moss 会在应用页上方自动展示标题栏与菜单，应用内部专注于产品本身的内容与控制区。
+   - **无假 Moss 外壳与宿主非侵入 AI 浮窗**：Moss 外壳会自动在应用页上方展示标题栏，并在右下角提供可收起的「随心输入 / 气泡 / 浮窗 / 停靠分栏」Moss 原生对话与划词「评论 → 发送给 Moss」非侵入式悬浮组件（直通实时对话流）；因此生成微信阅读、笔记本、待办、看板等应用时应保持页面本身纯净克制，不要把厚重的常驻 AI 聊天侧边栏硬塞进应用排版里，除非用户明确要求特殊场景控件（如会议室 Mossbot 控制条）。
 
 ---
 
@@ -313,12 +313,11 @@ export const MOSS_DEVELOPER_SKILLS: readonly MossDeveloperSkillSpec[] = [
 无论从零新建还是增强已有页面，优先使用 Moss 本地离线托管的 **\`moss-ui-kit\`**（Shadow DOM / \`:host\` 样式隔离 + \`--moss-*\` 变量，**绝不污染宿主样式**）：
 
 1. **Moss 原生基础组件（Core Primitives）**：\`MossButton\`、\`MossCard\`、\`MossTabs\`、\`MossDrawer\`、\`MossDialog\`、\`MossBadge\`、\`MossToast\`、\`MossMarkdown\` —— 构建结构清晰、克制统一的应用界面。
-2. **即插即用功能部件（Feature Widgets）**：
-   - **\`MossSelectionAsk\`**：监听阅读容器划词选中 → 三色高亮 + 「划线提问 / 问 Moss」→ 调用 \`moss.use("chat")\`（自动回退 \`ai\`）。
-   - **\`MossCompanionDrawer\`**：可收起/展开的 AI 伴读与笔记侧边抽屉。
+2. **按场景选用的内置功能部件**：
    - **\`MossbotMeetingBar\`**：会议室可插拔 Mossbot 控制条（一键「拉 Moss 加入会议」「生成会议纪要」→ 调用 \`moss.use("mossbot")\`）。
    - **\`MossVoiceButton\`** 与 **\`MossRealtimeVoiceBar\`**：内联语音输入/朗读按钮与实时语音会议控制条（连接 \`moss.use("voice")\`）。
    - **\`MossMediaTrigger\`**：轻量内联生图/生视频触发按钮（连接 \`moss.use("media")\`）。
+   - **\`MossSelectionAsk\` / \`MossCompanionDrawer\`**（仅当用户明确点名要内置在网页里的伴读栏时再挂载；常规情况下 Moss 宿主外层已为所有应用统一提供右下角气泡/浮窗与划词评论直通）。
 
 ---
 
@@ -342,7 +341,7 @@ export const MOSS_DEVELOPER_SKILLS: readonly MossDeveloperSkillSpec[] = [
 export const MOSS_DEVELOPER_HARNESS_DIRECTIVE = [
   "### Moss Developer (`moss-developer` active)",
   "- One-sentence zero-key app building: when the user asks to build an app, mini-app, reader, meeting tool, tracker, or AI utility, NEVER ask them for external API keys or backend setup. Default to a persistent Moss Page App (`moss_app_guide` -> `moss_app_publish`, opens in `/apps/<id>` / RightDock) unless they explicitly ask for a standalone workspace codebase.",
-  "- Default to `moss-ui-kit` & native capabilities: compose Moss UI Kit core primitives (`MossButton`, `MossCard`, `MossTabs`, `MossDrawer`, `MossDialog`, `MossBadge`, `MossToast`, `MossMarkdown`) and pluggable native widgets (`MossSelectionAsk`, `MossCompanionDrawer`, `MossbotMeetingBar`, `MossVoiceButton`, `MossRealtimeVoiceBar`, `MossMediaTrigger`) without mutating host styles, backed by `moss.use()` (`db`, `ai`, `media`, `voice`, `chat`, `mossbot`, `desktop`, `files`, `downloads`, `user`, `permissions`, `page`, `room`, `comments`) with `null` fallbacks.",
+  "- Default to `moss-ui-kit` & native capabilities: compose Moss UI Kit core primitives (`MossButton`, `MossCard`, `MossTabs`, `MossDrawer`, `MossDialog`, `MossBadge`, `MossToast`, `MossMarkdown`) and specialized widgets (`MossbotMeetingBar`, `MossVoiceButton`, `MossRealtimeVoiceBar`, `MossMediaTrigger`; legacy `MossSelectionAsk` / `MossCompanionDrawer` only if an in-page drawer is explicitly requested) without mutating host styles, backed by `moss.use()` (`db`, `ai`, `media`, `voice`, `chat`, `mossbot`, `desktop`, `files`, `downloads`, `user`, `permissions`, `page`, `room`, `comments`) with `null` fallbacks; remember Moss host shell automatically overlays ONE universal collapsible bottom-right Moss bubble/chat & selection comment-to-Moss overlay on EVERY app (WeChat Read, meeting rooms, etc.), so keep generated apps clean and pure.",
   "- Outside the sandbox: only when building standalone apps outside Moss Page Apps, guide the user to Settings -> Developer for a Personal Moss Developer API Key (¥3.00 separate developer quota for LLM, Image, Video, and Voice; never hardcode secrets).",
 ].join("\n");
 

@@ -131,6 +131,38 @@ describe("PageAppBroker", () => {
     expect(broker.permissionStates().db).toBe("denied");
   });
 
+  it("forwards bounded frame selection bounds to host and clears selection on dispose", () => {
+    const selections: Array<unknown> = [];
+    const { broker, deps } = setup();
+    (deps as { onSelectionChange?: (s: unknown) => void }).onSelectionChange = (sel) =>
+      selections.push(sel);
+
+    broker.handleMessage({
+      protocol: P,
+      kind: "selection",
+      text: "  写下明天需要顺延的事项  ",
+      rect: { x: 88, y: 140, width: 180, height: 22 },
+      anchor: { target: "p#todo-6", label: "如果时间允许" },
+    });
+    expect(selections.at(-1)).toEqual({
+      text: "写下明天需要顺延的事项",
+      rect: { x: 88, y: 140, width: 180, height: 22 },
+      anchor: { target: "p#todo-6", label: "如果时间允许" },
+    });
+
+    broker.handleMessage({
+      protocol: P,
+      kind: "selection",
+      text: "",
+      rect: null,
+      anchor: null,
+    });
+    expect(selections.at(-1)).toBeNull();
+
+    broker.dispose();
+    expect(selections.at(-1)).toBeNull();
+  });
+
   it("does not remember a denial when the frame unmounts mid-prompt", async () => {
     let answer: (value: boolean) => void = () => undefined;
     const h = setup();

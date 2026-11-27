@@ -125,6 +125,10 @@ export const PageApp = Schema.Struct({
   title: AppTitle,
   description: AppDescription,
   revision: PositiveInt,
+  /** Optional pinned revision; when set, opening the app serves this stable revision. */
+  pinnedRevision: Schema.optional(Schema.NullOr(PositiveInt)),
+  /** Stable identifier when seeded as a built-in removable starter app. */
+  starterId: Schema.optional(Schema.NullOr(Schema.String.check(Schema.isMaxLength(64)))),
   capabilities: PageAppCapabilities,
   favorite: Schema.Boolean,
   thumbnail: Schema.NullOr(AppThumbnail),
@@ -231,6 +235,27 @@ export type PageAppsListInput = typeof PageAppsListInput.Type;
 export const PageAppsListResult = Schema.Struct({ apps: Schema.Array(PageApp) });
 export type PageAppsListResult = typeof PageAppsListResult.Type;
 
+export const PageAppPublicationSummary = Schema.Struct({
+  appId: PageAppId,
+  slug: TrimmedNonEmptyString.check(Schema.isMaxLength(120)),
+  url: Schema.NullOr(Schema.String.check(Schema.isMaxLength(2_048))),
+  visibility: Schema.Literals(["public", "unlisted", "org"]),
+  liveRevision: PositiveInt,
+  publishedAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+export type PageAppPublicationSummary = typeof PageAppPublicationSummary.Type;
+
+export const PageAppsListPublishedInput = Schema.Struct({
+  scopeSpaceId: Schema.optional(Schema.NullOr(SpaceId)),
+});
+export type PageAppsListPublishedInput = typeof PageAppsListPublishedInput.Type;
+
+export const PageAppsListPublishedResult = Schema.Struct({
+  publications: Schema.Array(PageAppPublicationSummary),
+});
+export type PageAppsListPublishedResult = typeof PageAppsListPublishedResult.Type;
+
 export const PageAppsReadInput = Schema.Struct({
   appId: PageAppId,
   revision: Schema.optional(PositiveInt),
@@ -300,10 +325,29 @@ export const PageAppsMutateInput = Schema.Union([
     ...AppMutationFields,
     revision: PositiveInt,
   }),
+  Schema.Struct({
+    op: Schema.Literal("pin-version"),
+    ...AppMutationFields,
+    revision: Schema.NullOr(PositiveInt),
+  }),
 ]);
 export type PageAppsMutateInput = typeof PageAppsMutateInput.Type;
 export const PageAppsMutateResult = Schema.Struct({ app: PageApp });
 export type PageAppsMutateResult = typeof PageAppsMutateResult.Type;
+
+export const PageAppsGenerateCoverInput = Schema.Struct({
+  appId: PageAppId,
+  prompt: Schema.optional(Schema.String.check(Schema.isMaxLength(1_000))),
+});
+export type PageAppsGenerateCoverInput = typeof PageAppsGenerateCoverInput.Type;
+
+export const PageAppsGenerateCoverResult = Schema.Struct({
+  app: PageApp,
+  imageDataUrl: Schema.String,
+  modelId: Schema.String,
+  prompt: Schema.String,
+});
+export type PageAppsGenerateCoverResult = typeof PageAppsGenerateCoverResult.Type;
 
 export const PageAppFrameMode = Schema.Literals(["full", "embed", "guest"]);
 export type PageAppFrameMode = typeof PageAppFrameMode.Type;
@@ -478,6 +522,57 @@ export const PageAppFrameMessage = Schema.Union([
     kind: Schema.Literal("resize"),
     height: Schema.Finite,
   }),
+  Schema.Struct({
+    protocol: Schema.Literal(PAGE_APP_PROTOCOL),
+    kind: Schema.Literal("selection"),
+    text: Schema.String.check(Schema.isMaxLength(2_000)),
+    rect: Schema.NullOr(
+      Schema.Struct({
+        x: Schema.Finite,
+        y: Schema.Finite,
+        width: Schema.Finite,
+        height: Schema.Finite,
+      }),
+    ),
+    anchor: Schema.optional(
+      Schema.NullOr(
+        Schema.Struct({
+          target: Schema.String.check(Schema.isMaxLength(256)),
+          label: Schema.String.check(Schema.isMaxLength(160)),
+        }),
+      ),
+    ),
+  }),
+  Schema.Struct({
+    protocol: Schema.Literal(PAGE_APP_PROTOCOL),
+    kind: Schema.Literal("heading"),
+    hasTopHeading: Schema.Boolean,
+  }),
+  Schema.Struct({
+    protocol: Schema.Literal(PAGE_APP_PROTOCOL),
+    kind: Schema.Literal("pick-ended"),
+    reason: Schema.optional(Schema.Literals(["escape", "cancelled"])),
+  }),
+  Schema.Struct({
+    protocol: Schema.Literal(PAGE_APP_PROTOCOL),
+    kind: Schema.Literal("element-picked"),
+    selector: Schema.String.check(Schema.isMaxLength(1_024)),
+    tagName: Schema.String.check(Schema.isMaxLength(64)),
+    role: Schema.NullOr(Schema.String.check(Schema.isMaxLength(64))),
+    name: Schema.NullOr(Schema.String.check(Schema.isMaxLength(256))),
+    text: Schema.NullOr(Schema.String.check(Schema.isMaxLength(280))),
+    html: Schema.optional(Schema.NullOr(Schema.String.check(Schema.isMaxLength(1_200)))),
+    rect: Schema.Struct({
+      x: Schema.Finite,
+      y: Schema.Finite,
+      width: Schema.Finite,
+      height: Schema.Finite,
+    }),
+    viewport: Schema.Struct({
+      width: Schema.Finite,
+      height: Schema.Finite,
+    }),
+  }),
 ]);
 export type PageAppFrameMessage = typeof PageAppFrameMessage.Type;
 
@@ -514,4 +609,22 @@ export type PageAppShellMessage =
       readonly kind: "end";
       readonly id: number;
       readonly error?: PageAppCallError;
+    }
+  | {
+      readonly protocol: typeof PAGE_APP_PROTOCOL;
+      readonly kind: "pick-mode";
+      readonly active: boolean;
+      readonly theme?: {
+        readonly accent: string;
+        readonly surface: string;
+        readonly text: string;
+      };
+    }
+  | {
+      readonly protocol: typeof PAGE_APP_PROTOCOL;
+      readonly kind: "sync-markers";
+      readonly markers: ReadonlyArray<{
+        readonly ordinal: number;
+        readonly selector: string;
+      }>;
     };

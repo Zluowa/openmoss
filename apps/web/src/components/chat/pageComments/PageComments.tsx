@@ -14,9 +14,11 @@ import {
   readHtmlRenderCommentRects,
 } from "@moss/shared/htmlRender";
 import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
+import { QueryClientContext } from "@tanstack/react-query";
 import type { ThreadId } from "@moss/contracts";
 import {
   useCallback,
+  useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -570,7 +572,7 @@ function useAgentReplySync(threadId: string, pageKey: string, comments: readonly
   }, [comments, pageKey, thread, updateReply]);
 }
 
-export function PageCommentsLayer(props: {
+export interface PageCommentsLayerProps {
   readonly frame: HTMLIFrameElement | null;
   /** Bumped on every frame load, so mode and anchors are sent to the new document. */
   readonly frameGeneration: number;
@@ -583,14 +585,23 @@ export function PageCommentsLayer(props: {
   readonly panelOpen: boolean;
   readonly onPanelOpenChange: (open: boolean) => void;
   readonly markersVisible: boolean;
-}) {
-  const { frame, pageKey, threadId } = props;
-  const comments = usePageComments(pageKey);
-  const addComment = usePageCommentsStore((store) => store.addComment);
-  const addReply = usePageCommentsStore((store) => store.addReply);
-  const deleteComment = usePageCommentsStore((store) => store.deleteComment);
-  const markPageRead = usePageCommentsStore((store) => store.markPageRead);
-  const requestSend = useThreadSendRequestStore((store) => store.request);
+  readonly onSendToAgent?: ((message: string) => void) | undefined;
+}
+
+const DEFAULT_COMMENT_AUTHOR: PageCommentAuthor = {
+  name: "You",
+  initials: pageCommentInitials("You"),
+};
+
+export function PageCommentsLayer(props: PageCommentsLayerProps) {
+  const queryClient = useContext(QueryClientContext);
+  if (queryClient) {
+    return <PageCommentsLayerWithAccount {...props} />;
+  }
+  return <PageCommentsLayerInner {...props} me={DEFAULT_COMMENT_AUTHOR} />;
+}
+
+function PageCommentsLayerWithAccount(props: PageCommentsLayerProps) {
   const identity = useCurrentAccountIdentity();
   const me: PageCommentAuthor = useMemo(
     () => ({
@@ -598,10 +609,23 @@ export function PageCommentsLayer(props: {
       initials:
         identity.kind === "authenticated" || identity.kind === "saved"
           ? identity.initials
-          : pageCommentInitials("You"),
+          : DEFAULT_COMMENT_AUTHOR.initials,
     }),
     [identity],
   );
+  return <PageCommentsLayerInner {...props} me={me} />;
+}
+
+function PageCommentsLayerInner(
+  props: PageCommentsLayerProps & { readonly me: PageCommentAuthor },
+) {
+  const { frame, me, pageKey, threadId } = props;
+  const comments = usePageComments(pageKey);
+  const addComment = usePageCommentsStore((store) => store.addComment);
+  const addReply = usePageCommentsStore((store) => store.addReply);
+  const deleteComment = usePageCommentsStore((store) => store.deleteComment);
+  const markPageRead = usePageCommentsStore((store) => store.markPageRead);
+  const requestSend = useThreadSendRequestStore((store) => store.request);
   const hostRef = useRef<HTMLDivElement>(null);
   const [pane, setPane] = useState<PaneSize>({ width: 0, height: 0 });
   const [rects, setRects] = useState<Readonly<Record<string, HtmlRenderCommentRect | null>>>({});
@@ -718,10 +742,16 @@ export function PageCommentsLayer(props: {
     setDraft(null);
     setOpenId(comment.id);
     if (sendToAgent) {
-      requestSend(
-        threadId,
-        pageCommentAgentMessage({ pageTitle: props.pageTitle, anchor: draft.anchor, body }),
-      );
+      const formatted = pageCommentAgentMessage({
+        pageTitle: props.pageTitle,
+        anchor: draft.anchor,
+        body,
+      });
+      if (props.onSendToAgent) {
+        props.onSendToAgent(formatted);
+      } else if (threadId) {
+        requestSend(threadId, formatted);
+      }
     }
   };
 

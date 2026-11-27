@@ -16,6 +16,7 @@ import {
 
 import {
   AddPlusIcon,
+  ChatBubbleIcon,
   ChevronRightIcon,
   DataDashboardIcon,
   EllipsisIcon,
@@ -37,6 +38,10 @@ import {
   XIcon,
   type LucideIcon,
 } from "~/lib/icons";
+import { useActiveCompanionDock } from "~/lib/pageAi/activeCompanionDock";
+import { artifactAssistantThreadKey, pageAssistantThreads } from "~/lib/pageAi/pageAssistantThread";
+import { usePageAssistantThreadIds } from "~/hooks/usePageAssistantThreadIds";
+import { useStore } from "~/store";
 import { cn } from "~/lib/utils";
 import {
   SIDEBAR_HEADER_ROW_CLASS_NAME,
@@ -53,11 +58,15 @@ import { SidebarIconButton } from "../SidebarIconButton";
 import { SidebarLeadingIcon } from "../SidebarLeadingIcon";
 import { SidebarPrimaryAction } from "../SidebarPrimaryAction";
 import { SidebarPanelTitle } from "../SidebarPanelTitle";
+import { SidebarUnreadCompletionGlyph } from "../SidebarStatusTrailingGlyph";
+import { ThreadRunningSpinner } from "../ThreadRunningSpinner";
 import { SpaceIcon, SPACE_ICON_OPTIONS } from "../SpaceIcon";
 import { DisclosureRegion } from "../ui/DisclosureRegion";
 import { SidebarMenu, SidebarMenuItem } from "../ui/sidebar";
 import { Button } from "../ui/button";
 import { Menu, MenuItem, MenuSeparator, MenuTrigger } from "../ui/menu";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import type { SpaceArtifactKind } from "./spaceCanvasDockContract";
 import { SpaceCreateMenu, type SpaceCreateAction } from "./SpaceCreateMenu";
 import { hasSpaceItemDrag, readDraggedSpaceKeys } from "./spaceDragState";
 import { useSpaceItemMeta } from "../spaceTypes/dashboard/useDashboardItemMeta";
@@ -624,9 +633,103 @@ export function SpaceSidebar(props: {
 
 /** One 资料空间 nav row: the main sidebar's primary action row, so both panels match. */
 /** A recent item's row: its icon follows what the item is (a 数据看板 reads as one). */
+function resolveSpaceItemIdFromKey(key: string): string {
+  const sep = key.indexOf(":");
+  return sep === -1 ? key : key.slice(sep + 1);
+}
+
 function RecentRow(props: Omit<Parameters<typeof NavRow>[0], "icon"> & { item: SpaceItem }) {
   const { item, ...rest } = props;
-  return <NavRow {...rest} icon={useSpaceItemMeta(item).icon} />;
+  const activeDock = useActiveCompanionDock();
+  const threadSummaries = useStore((store) => store.sidebarThreadSummaryById);
+  usePageAssistantThreadIds();
+
+  const itemId = resolveSpaceItemIdFromKey(item.key);
+  const artifactKind: SpaceArtifactKind =
+    item.kind === "app"
+      ? "app"
+      : item.kind === "slides"
+        ? "slides"
+        : item.kind === "sheet"
+          ? "sheet"
+          : item.kind === "design"
+            ? "design"
+            : item.kind === "dashboard"
+              ? "dashboard"
+              : item.kind === "board"
+                ? "board"
+                : "page";
+  const dockMatches =
+    activeDock !== null && activeDock.itemId === itemId && activeDock.artifactKind === artifactKind;
+  const boundThreadId =
+    (dockMatches ? activeDock.threadId : null) ??
+    pageAssistantThreads.get(artifactAssistantThreadKey("default", null, artifactKind, itemId));
+  const summary = boundThreadId ? threadSummaries[boundThreadId] : undefined;
+  const summaryRunning = Boolean(
+    summary &&
+    !summary.archivedAt &&
+    (summary.session?.status === "running" ||
+      summary.session?.activeTurnId != null ||
+      summary.latestTurn?.state === "running"),
+  );
+
+  const companionStatus: "running" | "unread" | "active" | null =
+    (dockMatches && activeDock.busy) || summaryRunning
+      ? "running"
+      : dockMatches && activeDock.hasUnread
+        ? "unread"
+        : dockMatches && (activeDock.threadId !== null || activeDock.dockState !== "collapsed")
+          ? "active"
+          : null;
+
+  const statusMeta =
+    companionStatus === "running"
+      ? {
+          label: "Moss 正在对话中",
+          node: (
+            <span
+              data-space-item-chat-status="running"
+              aria-label="Moss 正在对话中"
+              className="inline-flex size-4 items-center justify-center text-foreground/70"
+            >
+              <ThreadRunningSpinner />
+            </span>
+          ),
+        }
+      : companionStatus === "unread"
+        ? {
+            label: "Moss 有新回复",
+            node: (
+              <span data-space-item-chat-status="unread" aria-label="Moss 有新回复">
+                <SidebarUnreadCompletionGlyph />
+              </span>
+            ),
+          }
+        : companionStatus === "active"
+          ? {
+              label: "已关联 Moss 对话",
+              node: (
+                <span
+                  data-space-item-chat-status="active"
+                  aria-label="已关联 Moss 对话"
+                  className="inline-flex items-center text-muted-foreground/70"
+                >
+                  <ChatBubbleIcon className="size-3.5" aria-hidden />
+                </span>
+              ),
+            }
+          : null;
+
+  const trailingIndicator = statusMeta ? (
+    <Tooltip>
+      <TooltipTrigger render={statusMeta.node} />
+      <TooltipPopup side="top">{statusMeta.label}</TooltipPopup>
+    </Tooltip>
+  ) : undefined;
+
+  return (
+    <NavRow {...rest} icon={useSpaceItemMeta(item).icon} trailingIndicator={trailingIndicator} />
+  );
 }
 
 function NavRow(props: {
@@ -634,6 +737,7 @@ function NavRow(props: {
   label: string;
   /** Quiet text at the row's end (an untitled item's time). */
   detail?: string | undefined;
+  trailingIndicator?: ReactNode;
   active: boolean;
   onClick: () => void;
 }) {
@@ -642,6 +746,7 @@ function NavRow(props: {
       icon={props.icon}
       label={props.label}
       detail={props.detail}
+      trailingIndicator={props.trailingIndicator}
       active={props.active}
       onClick={props.onClick}
     />

@@ -19,15 +19,19 @@ import {
   resolveSubagentThreadStatusKind,
 } from "../lib/subagentPresentation";
 import { resolveThreadHandoffBadgeLabel } from "../lib/threadHandoff";
-import { SIDEBAR_ROW_LABEL_TEXT_CLASS_NAME } from "../sidebarRowStyles";
+import {
+  SIDEBAR_ROW_LABEL_TEXT_CLASS_NAME,
+  sidebarHoverRevealHideClassName,
+} from "../sidebarRowStyles";
 import type { SidebarThreadSummary } from "../types";
-import { TerminalIcon } from "../lib/icons";
+import { TerminalIcon, WindowAppIcon } from "../lib/icons";
 import { isImeComposingKeyEvent } from "../lib/imeKeyEvent";
 import { cn } from "../lib/utils";
 import { ProviderIcon } from "./ProviderIcon";
 import { SubagentMark } from "./chat/SubagentMark";
 import { SidebarGlyph } from "./sidebarGlyphs";
 import { SidebarDraftGlyph } from "./SidebarStatusTrailingGlyph";
+import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { DisclosureChevron } from "./ui/DisclosureChevron";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
@@ -227,6 +231,7 @@ export function SidebarThreadRowContent({
   variant,
   subagentIndentPx: subagentIndentPxProp,
   pendingStatusColorClass,
+  appOriginState,
   childCount = 0,
   isParentCollapsed = false,
   onToggleParentCollapse,
@@ -240,6 +245,7 @@ export function SidebarThreadRowContent({
   variant: "pinned" | "standard";
   subagentIndentPx?: number;
   pendingStatusColorClass?: string | null | undefined;
+  appOriginState?: "companion" | "origin" | null | undefined;
   childCount?: number | undefined;
   isParentCollapsed?: boolean | undefined;
   onToggleParentCollapse?: (() => void) | undefined;
@@ -300,6 +306,18 @@ export function SidebarThreadRowContent({
       </span>
     ) : terminalEntryPoint ? (
       <SidebarGlyph icon={TerminalIcon} variant="chrome" className="shrink-0" />
+    ) : appOriginState ? (
+      <span
+        data-sidebar-app-origin-icon={appOriginState}
+        className={cn(
+          "relative inline-flex size-3.5 shrink-0 items-center justify-center",
+          appOriginState === "companion"
+            ? "text-[var(--color-text-accent)]"
+            : "text-muted-foreground/75",
+        )}
+      >
+        <WindowAppIcon className="size-3.5" aria-hidden />
+      </span>
     ) : showThreadProviderAvatar ? (
       <ProviderAvatarWithTerminal
         thread={thread}
@@ -393,6 +411,19 @@ export function SidebarThreadRowContent({
         {hasPendingDraft ? <SidebarDraftGlyph /> : null}
         {!isSubagentThread && pendingStatusColorClass ? (
           <AwaitingApprovalChip label={t("chat.timeline.awaitingApproval")} />
+        ) : null}
+        {appOriginState === "companion" ? (
+          <Badge
+            size="sm"
+            variant="default"
+            data-sidebar-app-companion-badge=""
+            className={cn(
+              "shrink-0 text-muted-foreground",
+              sidebarHoverRevealHideClassName("thread-row"),
+            )}
+          >
+            应用中
+          </Badge>
         ) : null}
         {variant === "pinned" ? suffix : null}
       </div>

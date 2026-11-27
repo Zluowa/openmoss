@@ -17,6 +17,43 @@ export const PAGE_ASSISTANT_IDLE_MS = 10 * 60_000;
 /** A second warm-up request inside this window is not sent again. */
 const WARM_AGAIN_AFTER_MS = 30_000;
 
+/** Kinds whose companion key embeds `:${kind}:` as its third segment. */
+const NON_PAGE_ARTIFACT_KINDS: ReadonlySet<SpaceArtifactKind> = new Set<SpaceArtifactKind>([
+  "slides",
+  "sheet",
+  "design",
+  "dashboard",
+  "board",
+  "app",
+]);
+
+export interface ParsedArtifactAssistantThreadKey {
+  readonly account: string;
+  readonly scopeSpace: string;
+  readonly kind: SpaceArtifactKind;
+  readonly itemId: string;
+}
+
+/**
+ * Parses keys built by `artifactAssistantThreadKey` (or legacy `pageAiKey`).
+ * Returns `null` when a key does not have at least `account:space:itemId`.
+ */
+export function parseArtifactAssistantThreadKey(
+  key: string,
+): ParsedArtifactAssistantThreadKey | null {
+  const parts = key.split(":");
+  if (parts.length < 3 || !parts[0] || !parts[1]) return null;
+  const account = parts[0];
+  const scopeSpace = parts[1];
+  const candidateKind = parts[2] as SpaceArtifactKind;
+  if (parts.length >= 4 && NON_PAGE_ARTIFACT_KINDS.has(candidateKind)) {
+    const itemId = parts.slice(3).join(":");
+    return itemId ? { account, scopeSpace, kind: candidateKind, itemId } : null;
+  }
+  const itemId = parts.slice(2).join(":");
+  return itemId ? { account, scopeSpace, kind: "page", itemId } : null;
+}
+
 /**
  * Stable lookup key for an artifact's primary assistant conversation. Docs keep the legacy
  * `pageAiKey` shape (`account:space:itemId`) so inline page AI and the Canvas Dock share one
@@ -82,6 +119,9 @@ const read = (): Map<string, string> => {
 // Every change to the bindings, so lists that hide item chats can follow them.
 let bindingVersion = 0;
 let boundThreadIds: ReadonlySet<string> | null = null;
+let nonAppBoundThreadIds: ReadonlySet<string> | null = null;
+let appBindingsMap: ReadonlyMap<string, { readonly key: string; readonly appId: string }> | null =
+  null;
 const bindingListeners = new Set<() => void>();
 
 const write = (next: Map<string, string>) => {
@@ -89,6 +129,8 @@ const write = (next: Map<string, string>) => {
   memory = next;
   bindingVersion += 1;
   boundThreadIds = null;
+  nonAppBoundThreadIds = null;
+  appBindingsMap = null;
   for (const listener of bindingListeners) listener();
   try {
     window.localStorage.setItem(
@@ -139,6 +181,36 @@ export const pageAssistantThreads = {
     boundThreadIds ??= new Set(read().values());
     return boundThreadIds;
   },
+  /** Bound item threads excluding standalone Page Apps (`kind === "app"`). */
+  nonAppThreadIds: (): ReadonlySet<string> => {
+    if (!nonAppBoundThreadIds) {
+      const next = new Set<string>();
+      for (const [key, threadId] of read().entries()) {
+        const parsed = parseArtifactAssistantThreadKey(key);
+        if (parsed?.kind === "app") continue;
+        next.add(threadId);
+      }
+      nonAppBoundThreadIds = next;
+    }
+    return nonAppBoundThreadIds;
+  },
+  /** Maps each Page App companion threadId to its key and appId. */
+  appBindingByThreadId: (): ReadonlyMap<
+    string,
+    { readonly key: string; readonly appId: string }
+  > => {
+    if (!appBindingsMap) {
+      const next = new Map<string, { readonly key: string; readonly appId: string }>();
+      for (const [key, threadId] of read().entries()) {
+        const parsed = parseArtifactAssistantThreadKey(key);
+        if (parsed?.kind === "app") {
+          next.set(threadId, { key, appId: parsed.itemId });
+        }
+      }
+      appBindingsMap = next;
+    }
+    return appBindingsMap;
+  },
   /** For useSyncExternalStore: changes whenever a binding is added or dropped. */
   version: (): number => bindingVersion,
   subscribe: (listener: () => void): (() => void) => {
@@ -149,6 +221,8 @@ export const pageAssistantThreads = {
   resetForTests: () => {
     memory = null;
     boundThreadIds = null;
+    nonAppBoundThreadIds = null;
+    appBindingsMap = null;
     bindingVersion += 1;
   },
 };

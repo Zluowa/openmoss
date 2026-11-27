@@ -327,6 +327,7 @@ export const PAGE_APP_DESKTOP_IPC_CHANNELS = {
   listInstalled: "desktop:page-apps-list-installed",
   openInstalled: "desktop:page-apps-open-installed",
   uninstall: "desktop:page-apps-uninstall",
+  setDesktopShortcut: "desktop:page-apps-set-desktop-shortcut",
   showInFolder: "desktop:page-apps-show-in-folder",
   openPermissions: "desktop:page-apps-open-permissions",
   getPermissions: "desktop:page-apps-get-permissions",
@@ -746,6 +747,22 @@ export const DesktopPageAppUninstallResult = Schema.Struct({
 });
 export type DesktopPageAppUninstallResult = typeof DesktopPageAppUninstallResult.Type;
 
+export const DesktopPageAppSetDesktopShortcutInput = Schema.Struct({
+  appId: Schema.optional(PageAppId),
+  installId: Schema.optional(BoundedInstallId),
+  enabled: Schema.Boolean,
+});
+export type DesktopPageAppSetDesktopShortcutInput =
+  typeof DesktopPageAppSetDesktopShortcutInput.Type;
+
+export const DesktopPageAppSetDesktopShortcutResult = Schema.Struct({
+  updated: Schema.Boolean,
+  app: Schema.NullOr(InstalledDesktopPageApp),
+  desktopShortcutEnabled: Schema.Boolean,
+});
+export type DesktopPageAppSetDesktopShortcutResult =
+  typeof DesktopPageAppSetDesktopShortcutResult.Type;
+
 export const DesktopPageAppOpenPermissionsInput = Schema.Struct({
   appId: PageAppId,
   installId: Schema.optional(BoundedInstallId),
@@ -903,6 +920,9 @@ export interface DesktopPageAppsBridge {
   readonly uninstall: (
     input: DesktopPageAppUninstallInput,
   ) => Promise<DesktopPageAppUninstallResult>;
+  readonly setDesktopShortcut?: (
+    input: DesktopPageAppSetDesktopShortcutInput,
+  ) => Promise<DesktopPageAppSetDesktopShortcutResult>;
   readonly showInFolder: (input: DesktopPageAppShowInFolderInput) => Promise<boolean>;
   readonly openPermissions: (input: DesktopPageAppOpenPermissionsInput) => Promise<void>;
   readonly getPermissions: (

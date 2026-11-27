@@ -11,6 +11,7 @@ import {
   pageAssistantThreads,
   pageRunActivity,
   pageRunProgress,
+  parseArtifactAssistantThreadKey,
   sendPageAssistantTurn,
 } from "./pageAssistantThread";
 
@@ -78,6 +79,39 @@ describe("pageAssistantThreads", () => {
     );
     expect(artifactAssistantThreadKey("acct", space9, "sheet", "item-1")).toBe(
       "acct:space-9:sheet:item-1",
+    );
+    expect(parseArtifactAssistantThreadKey("acct:local:item-1")).toEqual({
+      account: "acct",
+      scopeSpace: "local",
+      kind: "page",
+      itemId: "item-1",
+    });
+    expect(parseArtifactAssistantThreadKey("acct:space-9:app:app-1")).toEqual({
+      account: "acct",
+      scopeSpace: "space-9",
+      kind: "app",
+      itemId: "app-1",
+    });
+    expect(parseArtifactAssistantThreadKey("acct:local:slides:deck-1")).toEqual({
+      account: "acct",
+      scopeSpace: "local",
+      kind: "slides",
+      itemId: "deck-1",
+    });
+  });
+
+  it("separates Page App companion bindings from non-app Data Space item threads", () => {
+    const appThread = ThreadId.makeUnsafe("thread-app");
+    const slideThread = ThreadId.makeUnsafe("thread-slide");
+    const pageThread = ThreadId.makeUnsafe("thread-page");
+    pageAssistantThreads.set("default:local:app:app-1", appThread);
+    pageAssistantThreads.set("default:local:slides:deck-1", slideThread);
+    pageAssistantThreads.set("default:local:page-1", pageThread);
+
+    expect(pageAssistantThreads.threadIds()).toEqual(new Set([appThread, slideThread, pageThread]));
+    expect(pageAssistantThreads.nonAppThreadIds()).toEqual(new Set([slideThread, pageThread]));
+    expect(pageAssistantThreads.appBindingByThreadId()).toEqual(
+      new Map([[appThread, { key: "default:local:app:app-1", appId: "app-1" }]]),
     );
   });
 

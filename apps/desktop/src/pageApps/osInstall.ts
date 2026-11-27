@@ -502,6 +502,7 @@ export interface InstallOsArtifactsInput {
   readonly name: string;
   readonly description: string;
   readonly executablePath: string;
+  readonly hostBundleId?: string | null;
   readonly iconPath: string;
   readonly png256?: Buffer;
   readonly places: readonly DesktopPageAppInstallPlace[];
@@ -581,14 +582,6 @@ export function installOsArtifacts(input: InstallOsArtifactsInput): InstallOsArt
   }
 
   if (platform === "darwin") {
-    FS.mkdirSync(dirs.macApplicationsAppsDir, { recursive: true });
-    bundlePath = Path.join(dirs.macApplicationsAppsDir, `${input.name}.app`);
-    const contentsDir = Path.join(bundlePath, "Contents");
-    const macOsDir = Path.join(contentsDir, "MacOS");
-    const resourcesDir = Path.join(contentsDir, "Resources");
-    FS.mkdirSync(macOsDir, { recursive: true });
-    FS.mkdirSync(resourcesDir, { recursive: true });
-
     const plist = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -607,27 +600,135 @@ export function installOsArtifacts(input: InstallOsArtifactsInput): InstallOsArt
   <string>APPL</string>
   <key>CFBundleIconFile</key>
   <string>app.png</string>
+  <key>LSUIElement</key>
+  <true/>
+  <key>MossPageAppInstallId</key>
+  <string>${escapeXmlText(input.installId)}</string>
 </dict>
 </plist>
 `;
-    FS.writeFileSync(Path.join(contentsDir, "Info.plist"), plist, "utf8");
+    const hostBundleId = input.hostBundleId?.trim() || "com.moss.desktop";
+    const escapedExec = escapeShellSingleQuote(input.executablePath);
+    const escapedBundle = escapeShellSingleQuote(hostBundleId);
+    const script = [
+      "#!/bin/sh",
+      `if [ -x /usr/bin/open ] && /usr/bin/open -b '${escapedBundle}' --args '${launchArg}' "$@"; then`,
+      "  exit 0",
+      "fi",
+      `exec '${escapedExec}' '${launchArg}' "$@"`,
+      "",
+    ].join("\n");
 
-    const launcherPath = Path.join(macOsDir, "launcher");
-    const script = `#!/bin/sh\nexec '${escapeShellSingleQuote(input.executablePath)}' '${launchArg}' "$@"\n`;
-    FS.writeFileSync(launcherPath, script, { mode: 0o755 });
-    try {
-      FS.chmodSync(launcherPath, 0o755);
-    } catch {
-      // Best effort.
+    const writeDarwinBundle = (targetDir: string): string => {
+      FS.mkdirSync(targetDir, { recursive: true });
+      const targetAppPath = Path.join(targetDir, `${input.name}.app`);
+      const contentsDir = Path.join(targetAppPath, "Contents");
+      const macOsDir = Path.join(contentsDir, "MacOS");
+      const resourcesDir = Path.join(contentsDir, "Resources");
+      FS.mkdirSync(macOsDir, { recursive: true });
+      FS.mkdirSync(resourcesDir, { recursive: true });
+      FS.writeFileSync(Path.join(contentsDir, "Info.plist"), plist, "utf8");
+      const launcherPath = Path.join(macOsDir, "launcher");
+      FS.writeFileSync(launcherPath, script, { mode: 0o755 });
+      try {
+        FS.chmodSync(launcherPath, 0o755);
+      } catch {
+        // Best effort.
+      }
+      if (input.png256) {
+        FS.writeFileSync(Path.join(resourcesDir, "app.png"), input.png256);
+      }
+      shortcutPaths.push(targetAppPath);
+      return targetAppPath;
+    };
+
+    if (input.places.includes("applications")) {
+      bundlePath = writeDarwinBundle(dirs.macApplicationsAppsDir);
     }
-    if (input.png256) {
-      FS.writeFileSync(Path.join(resourcesDir, "app.png"), input.png256);
+    if (input.places.includes("desktop")) {
+      const desktopBundle = writeDarwinBundle(dirs.desktopDir);
+      bundlePath ??= desktopBundle;
     }
-    shortcutPaths.push(bundlePath);
     return { shortcutPaths, bundlePath };
   }
 
   return { shortcutPaths, bundlePath: null };
+}
+
+/** Toggles only the OS Desktop shortcut/bundle for an installed Page App, returning updated places and shortcutPaths. */
+export function setDesktopShortcutArtifact(input: {
+  readonly entry: InstalledDesktopPageApp;
+  readonly enabled: boolean;
+  readonly executablePath: string;
+  readonly hostBundleId?: string | null;
+  readonly png256?: Buffer;
+  readonly platform?: NodeJS.Platform;
+  readonly env?: NodeJS.ProcessEnv;
+  readonly homeDir?: string;
+  readonly aumidHelperCacheDir?: string;
+  readonly ops?: ShortcutWriterOps;
+}): {
+  readonly places: DesktopPageAppInstallPlace[];
+  readonly shortcutPaths: string[];
+  readonly desktopShortcutEnabled: boolean;
+} {
+  const platform = input.platform ?? process.platform;
+  const env = input.env ?? process.env;
+  const dirs = resolvePageAppShortcutDirectories(env, input.homeDir ?? OS.homedir());
+  const normalizedDesktopDir = Path.normalize(dirs.desktopDir).toLowerCase();
+  const isInDesktopDir = (filePath: string) =>
+    Path.normalize(Path.dirname(filePath)).toLowerCase() === normalizedDesktopDir;
+
+  const existingShortcuts = [...(input.entry.shortcutPaths ?? [])];
+  const nonDesktopShortcuts = existingShortcuts.filter((p) => !isInDesktopDir(p));
+  const desktopShortcuts = existingShortcuts.filter(isInDesktopDir);
+
+  if (!input.enabled) {
+    removeOsArtifacts({ shortcutPaths: desktopShortcuts, bundlePath: null });
+    const nextPlaces = input.entry.places.filter((place) => place !== "desktop");
+    return {
+      places: nextPlaces,
+      shortcutPaths: nonDesktopShortcuts,
+      desktopShortcutEnabled: false,
+    };
+  }
+
+  if (desktopShortcuts.some((p) => FS.existsSync(p))) {
+    const nextPlaces = input.entry.places.includes("desktop")
+      ? [...input.entry.places]
+      : ([...input.entry.places, "desktop"] as DesktopPageAppInstallPlace[]);
+    return {
+      places: nextPlaces,
+      shortcutPaths: existingShortcuts,
+      desktopShortcutEnabled: true,
+    };
+  }
+
+  const created = installOsArtifacts({
+    installId: input.entry.installId,
+    name: input.entry.name,
+    description: input.entry.rawTitle ?? input.entry.name,
+    executablePath: input.executablePath,
+    ...(input.hostBundleId !== undefined ? { hostBundleId: input.hostBundleId } : {}),
+    iconPath: input.entry.iconPath ?? "",
+    ...(input.png256 ? { png256: input.png256 } : {}),
+    places: ["desktop"],
+    platform,
+    env,
+    ...(input.homeDir ? { homeDir: input.homeDir } : {}),
+    ...(input.aumidHelperCacheDir ? { aumidHelperCacheDir: input.aumidHelperCacheDir } : {}),
+    ...(input.ops ? { ops: input.ops } : {}),
+  });
+
+  const nextShortcuts = Array.from(new Set([...nonDesktopShortcuts, ...created.shortcutPaths]));
+  const nextPlaces = input.entry.places.includes("desktop")
+    ? [...input.entry.places]
+    : ([...input.entry.places, "desktop"] as DesktopPageAppInstallPlace[]);
+  return {
+    places: nextPlaces,
+    shortcutPaths: nextShortcuts,
+    desktopShortcutEnabled: true,
+  };
 }
 
 /** Removes OS shortcuts / macOS `.app` bundle created for an installed Page App. */

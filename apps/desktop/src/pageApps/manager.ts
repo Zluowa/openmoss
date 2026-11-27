@@ -6,6 +6,7 @@
 // Layer: Desktop pageApps
 
 import * as Crypto from "node:crypto";
+import * as FS from "node:fs";
 import * as Path from "node:path";
 
 import {
@@ -24,6 +25,8 @@ import {
   type DesktopPageAppOpenResult,
   type DesktopPageAppPermissionsSummary,
   type DesktopPageAppRequestPermissionsInput,
+  type DesktopPageAppSetDesktopShortcutInput,
+  type DesktopPageAppSetDesktopShortcutResult,
   type DesktopPageAppSetPermissionInput,
   type DesktopPageAppShowInFolderInput,
   type DesktopPageAppSyncVersionInput,
@@ -52,6 +55,7 @@ import {
   removeOsArtifacts,
   resolvePageAppShortcutDirectories,
   sanitizePageAppInstallName,
+  setDesktopShortcutArtifact,
 } from "./osInstall";
 import {
   DesktopPageAppPermissionEngine,
@@ -1089,16 +1093,98 @@ export class DesktopPageAppsManager {
     const updatedDeclared = extractDeclaredPermissionsFromCapabilities(
       input.capabilities as Record<string, unknown> | undefined,
     );
+    const trimmedTitle = input.title?.trim();
+    const titleChanged =
+      Boolean(installed) &&
+      Boolean(trimmedTitle) &&
+      trimmedTitle !== (installed?.rawTitle ?? installed?.name);
 
-    if (installed && (changed || updatedDeclared.length > 0)) {
-      this.store.upsertInstalled({
+    if (installed && (changed || updatedDeclared.length > 0 || titleChanged)) {
+      let nextName = installed.name;
+      let nextShortcutPaths = [...(installed.shortcutPaths ?? [])];
+      let nextBundlePath = installed.bundlePath ?? null;
+      if (titleChanged && trimmedTitle) {
+        const dirs = resolvePageAppShortcutDirectories();
+        const existingNames = new Set<string>();
+        for (const dir of dirs.scanDirsForCollisions) {
+          try {
+            if (!FS.existsSync(dir)) continue;
+            for (const entry of FS.readdirSync(dir)) {
+              const lower = entry.toLowerCase();
+              const base =
+                lower.endsWith(".lnk") || lower.endsWith(".app") ? entry.slice(0, -4) : entry;
+              if (base.toLowerCase() !== installed.name.toLowerCase()) {
+                existingNames.add(base.toLowerCase());
+              }
+            }
+          } catch {
+            // Ignore directory read error.
+          }
+        }
+        const candidateName = sanitizePageAppInstallName(trimmedTitle, existingNames);
+        if (candidateName !== installed.name) {
+          removeOsArtifacts(installed);
+          const png256 =
+            installed.iconPath && FS.existsSync(installed.iconPath)
+              ? FS.readFileSync(installed.iconPath)
+              : undefined;
+          const rebuilt = installOsArtifacts({
+            installId: installed.installId,
+            name: candidateName,
+            description: trimmedTitle,
+            executablePath: this.executablePath,
+            iconPath: installed.iconPath ?? "",
+            ...(png256 ? { png256 } : {}),
+            places: installed.places,
+            aumidHelperCacheDir: this.aumidHelperCacheDir,
+            ops: {
+              writeWindowsShortcut: (lnkPath, opts) =>
+                shell.writeShortcutLink(lnkPath, "create", {
+                  target: opts.target,
+                  args: opts.args,
+                  icon: opts.icon,
+                  iconIndex: opts.iconIndex,
+                  description: opts.description,
+                  appUserModelId: opts.appUserModelId,
+                }),
+            },
+          });
+          nextName = candidateName;
+          nextShortcutPaths = [...rebuilt.shortcutPaths];
+          nextBundlePath = rebuilt.bundlePath;
+        }
+      }
+
+      const updatedList = this.store.upsertInstalled({
         ...installed,
+        name: nextName,
+        shortcutPaths: nextShortcutPaths,
+        bundlePath: nextBundlePath,
         revision: input.revision,
         contentHash: nextHash,
-        ...(input.title ? { rawTitle: input.title } : {}),
+        ...(trimmedTitle ? { rawTitle: trimmedTitle } : {}),
         ...(updatedDeclared.length > 0 ? { declaredPermissions: updatedDeclared } : {}),
         updatedAt: new Date().toISOString(),
       });
+      if (titleChanged) {
+        this.notifyInstalledChanged(updatedList);
+        const openWin = this.windowManager.getWindowByAppId(input.appId);
+        if (openWin && !openWin.isDestroyed()) {
+          try {
+            openWin.setTitle(nextName);
+            if (process.platform === "win32") {
+              openWin.setAppDetails({
+                appId: buildPageAppAumid(installed.installId),
+                ...(installed.iconPath ? { appIconPath: installed.iconPath, appIconIndex: 0 } : {}),
+                relaunchCommand: `"${this.executablePath}" --moss-app=${installed.installId}`,
+                relaunchDisplayName: nextName,
+              });
+            }
+          } catch {
+            // Ignore window title error.
+          }
+        }
+      }
     }
 
     let reloaded = false;
@@ -1112,6 +1198,54 @@ export class DesktopPageAppsManager {
     }
 
     return { invalidated: changed, reloaded };
+  }
+
+  setDesktopShortcut(
+    input: DesktopPageAppSetDesktopShortcutInput,
+  ): DesktopPageAppSetDesktopShortcutResult {
+    const installed = input.installId
+      ? this.store.findInstalledByInstallId(input.installId)
+      : input.appId
+        ? this.store.findInstalledByAppId(input.appId)
+        : undefined;
+    if (!installed) {
+      return { updated: false, app: null, desktopShortcutEnabled: false };
+    }
+    const png256 =
+      installed.iconPath && FS.existsSync(installed.iconPath)
+        ? FS.readFileSync(installed.iconPath)
+        : undefined;
+    const result = setDesktopShortcutArtifact({
+      entry: installed,
+      enabled: Boolean(input.enabled),
+      executablePath: this.executablePath,
+      ...(png256 ? { png256 } : {}),
+      aumidHelperCacheDir: this.aumidHelperCacheDir,
+      ops: {
+        writeWindowsShortcut: (lnkPath, opts) =>
+          shell.writeShortcutLink(lnkPath, "create", {
+            target: opts.target,
+            args: opts.args,
+            icon: opts.icon,
+            iconIndex: opts.iconIndex,
+            description: opts.description,
+            appUserModelId: opts.appUserModelId,
+          }),
+      },
+    });
+    const updatedRecord: InstalledDesktopPageApp = {
+      ...installed,
+      places: result.places,
+      shortcutPaths: result.shortcutPaths,
+      updatedAt: new Date().toISOString(),
+    };
+    const updatedList = this.store.upsertInstalled(updatedRecord);
+    this.notifyInstalledChanged(updatedList);
+    return {
+      updated: true,
+      app: updatedRecord,
+      desktopShortcutEnabled: result.desktopShortcutEnabled,
+    };
   }
 
   async reportAppGone(
@@ -1395,6 +1529,9 @@ export class DesktopPageAppsManager {
       const win = BrowserWindow.fromWebContents(event.sender) ?? this.getMainWindow();
       return this.uninstallWithConfirm((input ?? {}) as DesktopPageAppUninstallInput, win);
     });
+    handle(C.setDesktopShortcut, (_event, input) =>
+      this.setDesktopShortcut((input ?? {}) as DesktopPageAppSetDesktopShortcutInput),
+    );
     handle(C.showInFolder, (_event, input) =>
       this.showInFolderByQuery((input ?? {}) as DesktopPageAppShowInFolderInput),
     );
