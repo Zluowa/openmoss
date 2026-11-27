@@ -117,6 +117,9 @@ function ThreadErrorBannerContent({
   const displayError = presentation.title;
   const canRetry = onRetry !== undefined && presentation.retryable === true;
   const changeModelFirst = presentation.changeModelFirst === true;
+  const requiresReauth = presentation.recoveryAction === "manage-providers" && !canRetry;
+  const showContinue = onContinue !== undefined && !requiresReauth;
+  const showChangeModel = onChangeModel !== undefined && (showContinue || requiresReauth);
   return (
     <Alert
       variant="error"
@@ -180,7 +183,7 @@ function ThreadErrorBannerContent({
               {t("chat.error.openProviderSettings")}
             </Button>
           ) : null}
-          {onContinue && onChangeModel && changeModelFirst ? (
+          {showContinue && showChangeModel && changeModelFirst ? (
             <Button
               size="xs"
               variant="destructive-outline"
@@ -190,17 +193,17 @@ function ThreadErrorBannerContent({
               {t("chat.error.changeModel")}
             </Button>
           ) : null}
-          {onContinue ? (
+          {showContinue ? (
             <Button
               size="xs"
-              variant={changeModelFirst && onChangeModel ? "outline" : "destructive-outline"}
+              variant={changeModelFirst && showChangeModel ? "outline" : "destructive-outline"}
               disabled={recoveryDisabled}
               onClick={onContinue}
             >
               {t("chat.error.continueTask")}
             </Button>
           ) : null}
-          {onContinue && onChangeModel && !changeModelFirst ? (
+          {showChangeModel && (!showContinue || !changeModelFirst) ? (
             <Button size="xs" variant="outline" disabled={recoveryDisabled} onClick={onChangeModel}>
               {t("chat.error.changeModel")}
             </Button>

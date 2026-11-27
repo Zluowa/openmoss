@@ -135,4 +135,21 @@ describe("ThreadErrorBanner", () => {
   it("renders nothing without an error", () => {
     expect(renderToStaticMarkup(<ThreadErrorBanner error={null} onUnblock={() => {}} />)).toBe("");
   });
+
+  it("offers provider settings and change model without continue task when sign-in expired", () => {
+    const expired = "Your access token could not be refreshed. Please log out and sign in again.";
+    const markup = renderZh(
+      <ThreadErrorBanner
+        title="Task interrupted"
+        error={expired}
+        onContinue={() => {}}
+        onChangeModel={() => {}}
+      />,
+    );
+
+    expect(markup).toContain("这个账号的登录已失效。请在服务商设置中重新登录，或改用 Moss 服务。");
+    expect(markup).toContain("打开服务商设置");
+    expect(markup).toContain("更换模型");
+    expect(markup).not.toContain("继续任务");
+  });
 });

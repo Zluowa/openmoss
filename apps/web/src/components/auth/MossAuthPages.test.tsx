@@ -168,6 +168,62 @@ describe("Moss auth pages", () => {
     expect(text).not.toContain("获取验证码");
   });
 
+  it("redirects an existing Google session into Moss without demanding mainland phone verification", async () => {
+    const markup = await renderWithQueryClient(<MossPhoneLoginPage />, (queryClient) => {
+      queryClient.setQueryData(serverMossAccountSessionQueryOptions().queryKey, {
+        configured: true,
+        authenticated: false,
+        session: null,
+        smsProvider: "aliyun",
+        aliyunSmsConfigured: true,
+      });
+      queryClient.setQueryData(serverMossCloudAccountStateQueryOptions().queryKey, {
+        configured: true,
+        authenticated: true,
+        account: null,
+        session: null,
+        emailVerificationRequired: false,
+        modelGatewayConfigured: true,
+        authProvider: "supabase_google",
+        activeRealm: "global",
+      } satisfies MossCloudAccountState);
+    });
+    const text = textContent(markup);
+
+    expect(text).toContain("正在进入 Moss…");
+    expect(text).not.toContain("获取验证码");
+    expect(markup).not.toContain('id="moss-phone-number"');
+  });
+
+  it("keeps the phone form reachable when a Google-signed-in user explicitly chooses to add a phone lane", async () => {
+    const markup = await renderWithQueryClient(
+      <MossPhoneLoginPage addPhoneLane />,
+      (queryClient) => {
+        queryClient.setQueryData(serverMossAccountSessionQueryOptions().queryKey, {
+          configured: true,
+          authenticated: false,
+          session: null,
+          smsProvider: "aliyun",
+          aliyunSmsConfigured: true,
+        });
+        queryClient.setQueryData(serverMossCloudAccountStateQueryOptions().queryKey, {
+          configured: true,
+          authenticated: true,
+          account: null,
+          session: null,
+          emailVerificationRequired: false,
+          modelGatewayConfigured: true,
+          authProvider: "supabase_google",
+          activeRealm: "global",
+        } satisfies MossCloudAccountState);
+      },
+    );
+    const text = textContent(markup);
+
+    expect(text).toContain("获取验证码");
+    expect(markup).toContain('id="moss-phone-number"');
+  });
+
   it("keeps unavailable email sign-in simple and routes back to phone login", async () => {
     const state = {
       configured: false,

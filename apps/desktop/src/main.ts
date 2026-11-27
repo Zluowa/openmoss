@@ -8743,7 +8743,10 @@ function registerIpcHandlers(): void {
     }
 
     try {
-      if (isMossGoogleOAuthExternalUrl(externalUrl, process.env.MOSS_SUPABASE_GOOGLE_URL)) {
+      const configuredGoogleAuthUrl =
+        desktopProductionPublicConfig()?.authRealms["supabase-google"].authUrl ??
+        process.env.MOSS_SUPABASE_GOOGLE_URL;
+      if (isMossGoogleOAuthExternalUrl(externalUrl, configuredGoogleAuthUrl)) {
         // Development builds can coexist with another Moss (Dev), and macOS
         // lets the most recently registered bundle steal the shared `moss:`
         // callback. Refresh this exact app's claim immediately before opening

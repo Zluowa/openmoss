@@ -1288,6 +1288,90 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
     }),
   );
 
+  it.effect(
+    "keeps built-in codex_apps startup failures out of Moss-managed and auth-expired runtime warnings",
+    () =>
+      Effect.gen(function* () {
+        const adapter = yield* CodexAdapter;
+        const sentinel = "codex_apps fixture complete";
+        const managedThreadId = asThreadId("thread-codex-moss");
+        lifecycleManager.sessionSnapshots.push({
+          provider: "codex",
+          providerInstanceId: "codex_moss" as ProviderInstanceId,
+          status: "ready",
+          runtimeMode: "approval-required",
+          threadId: managedThreadId,
+          cwd: "/repo",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
+        const eventsFiber = yield* Stream.takeUntil(
+          adapter.streamEvents,
+          (event) => event.type === "runtime.warning" && event.payload.message === sentinel,
+        ).pipe(Stream.runCollect, Effect.forkChild);
+        try {
+          lifecycleManager.emit("event", {
+            id: asEventId("codex-apps-auth-expired"),
+            kind: "notification",
+            provider: "codex",
+            threadId: asThreadId("thread-1"),
+            createdAt: new Date().toISOString(),
+            method: "mcpServer/startupStatus/updated",
+            payload: {
+              name: "codex_apps",
+              status: "failed",
+              error: "Your access token could not be refreshed. Please log out and sign in again.",
+            },
+          } satisfies ProviderEvent);
+          lifecycleManager.emit("event", {
+            id: asEventId("codex-apps-managed"),
+            kind: "notification",
+            provider: "codex",
+            threadId: managedThreadId,
+            createdAt: new Date().toISOString(),
+            method: "mcpServer/startupStatus/updated",
+            payload: {
+              name: "codex_apps",
+              status: "failed",
+              error: "MCP client for `codex_apps` failed to start: handshake",
+            },
+          } satisfies ProviderEvent);
+          lifecycleManager.emit("event", {
+            id: asEventId("user-github-failure"),
+            kind: "notification",
+            provider: "codex",
+            threadId: managedThreadId,
+            createdAt: new Date().toISOString(),
+            method: "mcpServer/startupStatus/updated",
+            payload: {
+              name: "moss",
+              status: "failed",
+              error: "HTTP 502 Bad Gateway",
+            },
+          } satisfies ProviderEvent);
+          lifecycleManager.emit("event", {
+            id: asEventId("codex-apps-sentinel"),
+            kind: "notification",
+            provider: "codex",
+            threadId: managedThreadId,
+            createdAt: new Date().toISOString(),
+            method: "warning",
+            payload: { message: sentinel },
+          } satisfies ProviderEvent);
+          const messages = Array.from(yield* Fiber.join(eventsFiber))
+            .slice(0, -1)
+            .flatMap((event) => (event.type === "runtime.warning" ? [event.payload.message] : []));
+          assert.deepEqual(messages, [
+            'MCP server "moss" could not start. Its tools are unavailable for now.',
+          ]);
+        } finally {
+          lifecycleManager.sessionSnapshots = lifecycleManager.sessionSnapshots.filter(
+            (session) => session.threadId !== managedThreadId,
+          );
+        }
+      }),
+  );
+
   it.effect("retains Codex guardian and runtime warning messages as warning activities", () =>
     Effect.gen(function* () {
       const adapter = yield* CodexAdapter;

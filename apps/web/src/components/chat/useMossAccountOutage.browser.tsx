@@ -1,6 +1,6 @@
 import "../../index.css";
 
-import { TurnId, type MossAccountSessionState } from "@moss/contracts";
+import { TurnId, type MossAccountSessionState, type MossCloudAccountState } from "@moss/contracts";
 import { MOSS_ACCOUNT_SERVICE_UNAVAILABLE_MESSAGE } from "@moss/shared/mossManagedSession";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
@@ -8,10 +8,23 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { page } from "vitest/browser";
 import { render, renderHook } from "vitest-browser-react";
 
-const harness = vi.hoisted(() => ({ getMossAccountSession: vi.fn() }));
+const harness = vi.hoisted(() => ({
+  getMossAccountSession: vi.fn(),
+  getMossCloudAccountState: vi.fn(),
+}));
 vi.mock("~/nativeApi", () => ({
-  ensureNativeApi: () => ({ server: { getMossAccountSession: harness.getMossAccountSession } }),
-  readNativeApi: () => ({ server: { getMossAccountSession: harness.getMossAccountSession } }),
+  ensureNativeApi: () => ({
+    server: {
+      getMossAccountSession: harness.getMossAccountSession,
+      getMossCloudAccountState: harness.getMossCloudAccountState,
+    },
+  }),
+  readNativeApi: () => ({
+    server: {
+      getMossAccountSession: harness.getMossAccountSession,
+      getMossCloudAccountState: harness.getMossCloudAccountState,
+    },
+  }),
 }));
 
 import { MossLocaleScope } from "../../localization";
@@ -26,6 +39,15 @@ const signedIn: MossAccountSessionState = {
   smsProvider: "aliyun",
   aliyunSmsConfigured: true,
 };
+const googleSignedOut: MossCloudAccountState = {
+  configured: true,
+  authenticated: false,
+  account: null,
+  session: null,
+  emailVerificationRequired: false,
+  modelGatewayConfigured: true,
+  authProvider: "supabase_google",
+};
 const failed = TurnId.makeUnsafe("turn-failed-during-outage");
 let queryClient: QueryClient;
 const wrapper = ({ children }: { children: ReactNode }) => (
@@ -35,6 +57,8 @@ const wrapper = ({ children }: { children: ReactNode }) => (
 beforeEach(() => {
   queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   harness.getMossAccountSession.mockReset();
+  harness.getMossCloudAccountState.mockReset();
+  harness.getMossCloudAccountState.mockResolvedValue(googleSignedOut);
 });
 afterEach(() => queryClient.clear());
 
@@ -82,6 +106,23 @@ it("never continues a task that failed while the service worked", async () => {
   );
   await vi.waitFor(() => expect(harness.getMossAccountSession).toHaveBeenCalled());
   await queryClient.invalidateQueries({ queryKey: mossServerQueryKeys.mossAccountSession() });
+  expect(hook.result.current.unavailable).toBe(false);
+  expect(onResume).not.toHaveBeenCalled();
+});
+
+it("never marks Google-signed-in chats unavailable when the mainland phone service is unreachable", async () => {
+  harness.getMossAccountSession.mockResolvedValue({ ...signedIn, accountService: "unavailable" });
+  harness.getMossCloudAccountState.mockResolvedValue({
+    ...googleSignedOut,
+    authenticated: true,
+    activeRealm: "global",
+  });
+  const onResume = vi.fn(async () => true);
+  const hook = await renderHook(
+    () => useMossAccountOutage({ enabled: true, recoverableTurnId: failed, onResume }),
+    { wrapper },
+  );
+  await vi.waitFor(() => expect(harness.getMossCloudAccountState).toHaveBeenCalled());
   expect(hook.result.current.unavailable).toBe(false);
   expect(onResume).not.toHaveBeenCalled();
 });

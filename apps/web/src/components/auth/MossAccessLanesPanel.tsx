@@ -136,7 +136,17 @@ export function MossAccessLanesPanel({
                 ) : null}
                 {!signedIn ? (
                   <Button
-                    render={<Link onClick={onNavigateToAuth} to={SIGN_IN_ROUTE[lane]} />}
+                    render={
+                      lane === "cn" ? (
+                        <Link
+                          onClick={onNavigateToAuth}
+                          search={{ add: "phone" }}
+                          to={SIGN_IN_ROUTE[lane]}
+                        />
+                      ) : (
+                        <Link onClick={onNavigateToAuth} to={SIGN_IN_ROUTE[lane]} />
+                      )
+                    }
                     size="sm"
                     variant="ghost"
                   >

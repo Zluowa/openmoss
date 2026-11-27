@@ -12,9 +12,12 @@ import { serverQueryKeys } from "~/lib/serverReactQuery";
 import { useTranslation } from "~/localization";
 import {
   serverMossAccountSessionQueryOptions,
+  serverMossCloudAccountStateQueryOptions,
+  serverMossEnterpriseKeyStateQueryOptions,
   serverMossPhoneLoginMutationOptions,
   synchronizeMossManagedChatReadiness,
 } from "./mossServerReactQuery";
+import { MOSS_IMMEDIATE_MODEL_SELECTION } from "./activateMossChatSelection";
 import { MossAuthLoading, MossAuthShell } from "./MossAuthShell";
 import { MossGoogleOAuthButton } from "./MossGoogleOAuth";
 import { mossAccessLaneSummary } from "./mossAccessLanes.logic";
@@ -252,23 +255,35 @@ export function MossPhoneLoginForm({
   );
 }
 
-export function MossPhoneLoginPage() {
+export function MossPhoneLoginPage({
+  addPhoneLane = false,
+}: {
+  readonly addPhoneLane?: boolean | undefined;
+} = {}) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const accountQuery = useQuery(serverMossAccountSessionQueryOptions({ retry: 0 }));
+  const cloudQuery = useQuery(serverMossCloudAccountStateQueryOptions());
+  const enterpriseQuery = useQuery(serverMossEnterpriseKeyStateQueryOptions());
   const mutation = useMutation(serverMossPhoneLoginMutationOptions({ queryClient }));
   const [restorationError, setRestorationError] = useState<string | null>(null);
   const authenticatedByCurrentMutation =
     mutation.data !== undefined && "authenticated" in mutation.data && mutation.data.authenticated;
+  const phoneAuthenticated = Boolean(accountQuery.data?.authenticated);
+  const otherLaneAuthenticated =
+    !addPhoneLane &&
+    (Boolean(cloudQuery.data?.authenticated) ||
+      Boolean(enterpriseQuery.data?.authenticated && enterpriseQuery.data?.active));
+  const sessionAuthenticated = phoneAuthenticated || otherLaneAuthenticated;
   const authenticatedSurface = resolveMossPhoneAuthenticatedSurface({
-    sessionAuthenticated: Boolean(accountQuery.data?.authenticated),
+    sessionAuthenticated,
     currentMutationAuthenticated: authenticatedByCurrentMutation,
     recoveryError: restorationError,
   });
 
   useEffect(() => {
-    if (!accountQuery.data?.authenticated || authenticatedByCurrentMutation) return;
+    if (!sessionAuthenticated || authenticatedByCurrentMutation) return;
     let active = true;
     setRestorationError(null);
     void completeMossPhoneLogin({
@@ -276,6 +291,7 @@ export function MossPhoneLoginPage() {
       navigate: () => navigate({ to: "/", search: MOSS_POST_AUTH_CHAT_SEARCH, replace: true }),
       queryClient,
       synchronize: () => synchronizeMossPhoneLoginSettings(queryClient),
+      ...(phoneAuthenticated ? {} : { immediateModelSelection: MOSS_IMMEDIATE_MODEL_SELECTION }),
     })
       .then((completed) => {
         if (active && !completed) {
@@ -288,7 +304,13 @@ export function MossPhoneLoginPage() {
     return () => {
       active = false;
     };
-  }, [accountQuery.data?.authenticated, authenticatedByCurrentMutation, navigate, queryClient]);
+  }, [
+    authenticatedByCurrentMutation,
+    navigate,
+    phoneAuthenticated,
+    queryClient,
+    sessionAuthenticated,
+  ]);
 
   const error = mutation.error
     ? t(

@@ -165,3 +165,16 @@ export function isCodexUserMcpOAuthStartupError(server: string, error: string): 
       `The ${server} MCP server requires OAuth reauthentication. Run \`codex mcp login ${server}\`.`
   );
 }
+
+/**
+ * Codex enables its built-in `codex_apps` connector by default unless disabled in
+ * config. Moss-managed and non-ChatGPT sessions do not carry ChatGPT OAuth tokens
+ * for `codex_apps`, so its 401/expired-auth startup failure is expected noise that
+ * belongs in the server log instead of cluttering every chat transcript.
+ */
+export function isCodexBuiltInAppsAuthStartupError(server: string, error: string): boolean {
+  if (server !== "codex_apps") return false;
+  return /\b(?:401|403|unauthori[sz]ed|not logged in|not signed in|log ?in required|sign[- ]?in required|authentication required|access token|token expired|refresh|oauth|chatgpt|workspace routing discovery)\b/iu.test(
+    error,
+  );
+}

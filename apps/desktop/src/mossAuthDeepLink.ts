@@ -169,7 +169,7 @@ export function resolveMossAuthCallbackRoute(value: unknown): string | null {
   if (callbackUrl.searchParams.has("error")) {
     return resolveMossAuthErrorCallbackRoute(callbackUrl);
   }
-  if (fragmentStart !== -1) {
+  if (fragmentStart !== -1 && fragmentStart < value.length - 1) {
     return null;
   }
 

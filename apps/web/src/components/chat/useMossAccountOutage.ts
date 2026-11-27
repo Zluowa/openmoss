@@ -8,7 +8,10 @@ import type { TurnId } from "@moss/contracts";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 
-import { serverMossAccountSessionQueryOptions } from "../auth/mossServerReactQuery";
+import {
+  serverMossAccountSessionQueryOptions,
+  serverMossCloudAccountStateQueryOptions,
+} from "../auth/mossServerReactQuery";
 import {
   isMossAccountServiceUnavailable,
   mossAccountOutageCheckDelayMs,
@@ -33,7 +36,12 @@ export function useMossAccountOutage(input: {
     },
     refetchIntervalInBackground: true,
   });
-  const unavailable = input.enabled && isMossAccountServiceUnavailable(query.data);
+  const cloudQuery = useQuery(serverMossCloudAccountStateQueryOptions({ enabled: input.enabled }));
+  const usesCloudLane =
+    cloudQuery.data?.authenticated === true &&
+    (cloudQuery.data.activeRealm === "global" || query.data?.authenticated !== true);
+  const unavailable =
+    input.enabled && !usesCloudLane && isMossAccountServiceUnavailable(query.data);
   useEffect(() => {
     if (!unavailable) unavailableSinceRef.current = null;
     else unavailableSinceRef.current ??= Date.now();

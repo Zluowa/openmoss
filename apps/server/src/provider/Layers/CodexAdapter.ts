@@ -58,6 +58,7 @@ import {
 } from "@moss/contracts";
 import { Cause, Effect, Layer, Option, Queue, Schema, ServiceMap, Stream } from "effect";
 import {
+  isCodexBuiltInAppsAuthStartupError,
   isCodexDiagnosticWarningMessage,
   isCodexUserMcpOAuthStartupError,
   readCodexMcpSubscriptionError,
@@ -3070,6 +3071,7 @@ function mapToRuntimeEvents(
   event: ProviderEvent,
   canonicalThreadId: ThreadId,
   codexHome?: CodexGeneratedImageHomeContext,
+  providerInstanceId?: ProviderInstanceId | string,
 ): ReadonlyArray<ProviderRuntimeEvent> {
   const payload = asObject(event.payload);
   const turn = asObject(payload?.turn);
@@ -3748,7 +3750,18 @@ function mapToRuntimeEvents(
     if (payload?.status === "failed" && name && error) {
       // An expired OAuth grant of the person's own MCP server is their Codex setup, not this
       // chat (upstream PR #2213); its stderr twin is already server-log only.
-      if (isCodexUserMcpOAuthStartupError(name, error)) return [];
+      // Likewise, built-in `codex_apps` is ChatGPT-only and never authenticates under Moss-managed
+      // or non-ChatGPT sessions, so its auth/startup failure must not pollute the transcript.
+      const isMossManagedSession =
+        providerInstanceId === "codex_moss" ||
+        codexHome?.accountId?.trim().startsWith("moss") === true;
+      if (
+        isCodexUserMcpOAuthStartupError(name, error) ||
+        isCodexBuiltInAppsAuthStartupError(name, error) ||
+        (name === "codex_apps" && isMossManagedSession)
+      ) {
+        return [];
+      }
       return [
         {
           type: "runtime.warning",
@@ -5099,7 +5112,12 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
             dropRepeatedCodexMcpStartupWarnings(
               stampedEvent,
               origin.providerInstanceId,
-              mapToRuntimeEvents(stampedEvent, stampedEvent.threadId, origin.codexOptions),
+              mapToRuntimeEvents(
+                stampedEvent,
+                stampedEvent.threadId,
+                origin.codexOptions,
+                origin.providerInstanceId,
+              ),
               warnedMcpStartupFailures,
             ),
           );

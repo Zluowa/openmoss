@@ -1181,6 +1181,9 @@ export function buildMossManagedCodexConfig(input: {
     "",
     "[features]",
     "shell_snapshot = false",
+    // Moss-managed Codex uses model_provider = "moss" with requires_openai_auth = false
+    // and never holds a ChatGPT OAuth session for built-in codex_apps or remote plugins.
+    "apps = false",
     // Custom Moss model providers do not use ChatGPT's remote plugin catalog.
     // Keeping the catalog enabled adds an unrelated authenticated request at
     // startup; catalog failures can race the first Responses stream even

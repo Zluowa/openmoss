@@ -147,9 +147,12 @@ describe("resolveMossAuthCallbackRoute", () => {
     );
     expect(
       resolveMossAuthCallbackRoute(
-        "moss://auth/callback?flow_id=flow_abcdefghijklmnopqrstuvwxyz-0123456789&code=google%2Bcode",
+        "moss://auth/callback?flow_id=flow_abcdefghijklmnopqrstuvwxyz-0123456789&code=google%2Bcode#",
       ),
     ).toBe("/auth/callback?code=google%2Bcode&flowId=flow_abcdefghijklmnopqrstuvwxyz-0123456789");
+    expect(resolveMossAuthCallbackRoute("moss://auth/callback?code=pkce%2Bvalue#")).toBe(
+      "/auth/callback?code=pkce%2Bvalue",
+    );
   });
 
   it("bounds the single authorization code", () => {

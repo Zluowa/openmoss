@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   codexJsonLogLineAsText,
+  isCodexBuiltInAppsAuthStartupError,
   isCodexDiagnosticLogLine,
   isCodexDiagnosticWarningMessage,
   isCodexLogRecord,
@@ -150,5 +151,23 @@ describe("readCodexMcpSubscriptionError", () => {
     ]) {
       expect(readCodexMcpSubscriptionError(message)).toBeUndefined();
     }
+  });
+});
+
+describe("isCodexBuiltInAppsAuthStartupError", () => {
+  it("suppresses built-in codex_apps auth startup noise while keeping other servers visible", () => {
+    for (const error of [
+      "HTTP 401 Unauthorized",
+      "The codex_apps MCP server is not logged in.",
+      "Your access token could not be refreshed. Please log out and sign in again.",
+      "workspace routing discovery unauthorized (401)",
+      "ChatGPT sign-in required",
+    ]) {
+      expect(isCodexBuiltInAppsAuthStartupError("codex_apps", error)).toBe(true);
+      expect(isCodexBuiltInAppsAuthStartupError("moss", error)).toBe(false);
+      expect(isCodexBuiltInAppsAuthStartupError("amap_moss", error)).toBe(false);
+      expect(isCodexBuiltInAppsAuthStartupError("github", error)).toBe(false);
+    }
+    expect(isCodexBuiltInAppsAuthStartupError("codex_apps", "connection refused")).toBe(false);
   });
 });

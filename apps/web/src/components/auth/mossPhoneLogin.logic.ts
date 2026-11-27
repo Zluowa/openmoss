@@ -1,4 +1,4 @@
-import type { ServerSettings } from "@moss/contracts";
+import type { ModelSelection, ServerSettings } from "@moss/contracts";
 import type { QueryClient } from "@tanstack/react-query";
 
 import { serverQueryKeys } from "~/lib/serverReactQuery";
@@ -25,6 +25,7 @@ export async function completeMossPhoneLogin(input: {
   readonly queryClient: QueryClient;
   /** Refreshes authoritative settings in the background after navigation starts. */
   readonly synchronize: () => Promise<ServerSettings | null>;
+  readonly immediateModelSelection?: ModelSelection | undefined;
 }): Promise<boolean> {
   if (!input.authenticated) return false;
 
@@ -33,7 +34,10 @@ export async function completeMossPhoneLogin(input: {
   // OTP success is the login boundary. Select the product-owned default and
   // enter chat immediately; provider inventory and runtime startup are internal
   // background work and the first real turn starts the managed runtime on demand.
-  activateMossChatSelection(input.queryClient, MOSS_CN_IMMEDIATE_MODEL_SELECTION);
+  activateMossChatSelection(
+    input.queryClient,
+    input.immediateModelSelection ?? MOSS_CN_IMMEDIATE_MODEL_SELECTION,
+  );
   prepareMossPostAuthChatLanding();
   void Promise.resolve()
     .then(input.synchronize)
