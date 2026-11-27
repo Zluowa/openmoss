@@ -5,6 +5,12 @@ import {
   isMossGatewayUnreachableState,
   resolveMossAccountGatewayState,
 } from "../auth/useMossGatewayUnreachable";
+import {
+  MOSS_GATEWAY_RECOVERY_POLL_MS,
+  serverMossAccountSessionQueryOptions,
+  serverMossCloudAccountStateQueryOptions,
+  serverMossEnterpriseKeyStateQueryOptions,
+} from "../auth/mossServerReactQuery";
 import { providerReadinessDescriptionKey } from "~/lib/providerReadinessCopy";
 import { translateMoss } from "~/localization";
 import {
@@ -287,5 +293,41 @@ describe("Claude over Moss", () => {
         .filter((tab) => tab.provider === "claudeAgent")
         .map((tab) => tab.instanceId),
     ).toEqual(["claude_moss"]);
+  });
+
+  it("polls Moss account queries when transport-degraded and stops once recovered", () => {
+    const queryStub = (data: unknown) => ({ state: { data } }) as never;
+    const phoneInterval = serverMossAccountSessionQueryOptions().refetchInterval as (
+      q: never,
+    ) => number | false;
+    const cloudInterval = serverMossCloudAccountStateQueryOptions().refetchInterval as (
+      q: never,
+    ) => number | false;
+    const enterpriseInterval = serverMossEnterpriseKeyStateQueryOptions().refetchInterval as (
+      q: never,
+    ) => number | false;
+
+    expect(
+      phoneInterval(queryStub({ authenticated: true, modelGatewayStatus: "transport-degraded" })),
+    ).toBe(MOSS_GATEWAY_RECOVERY_POLL_MS);
+    expect(phoneInterval(queryStub({ authenticated: true, modelGatewayStatus: "ready" }))).toBe(
+      false,
+    );
+    expect(
+      cloudInterval(queryStub({ authenticated: true, modelGatewayStatus: "transport-degraded" })),
+    ).toBe(MOSS_GATEWAY_RECOVERY_POLL_MS);
+    expect(
+      cloudInterval(queryStub({ authenticated: false, modelGatewayStatus: "transport-degraded" })),
+    ).toBe(false);
+    expect(
+      enterpriseInterval(
+        queryStub({ authenticated: true, active: true, modelGatewayStatus: "transport-degraded" }),
+      ),
+    ).toBe(MOSS_GATEWAY_RECOVERY_POLL_MS);
+    expect(
+      enterpriseInterval(
+        queryStub({ authenticated: true, active: false, modelGatewayStatus: "transport-degraded" }),
+      ),
+    ).toBe(false);
   });
 });

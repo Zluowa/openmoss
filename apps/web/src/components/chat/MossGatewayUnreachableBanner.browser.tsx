@@ -56,4 +56,34 @@ describe("MossGatewayUnreachableBanner", () => {
     await renderBanner("claude_moss", "ready");
     expect(document.querySelector("[data-moss-gateway-unreachable]")).toBeNull();
   });
+
+  it("stays silent when another signed-in Moss account has a ready gateway", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: Infinity, enabled: false } },
+    });
+    queryClient.setQueryData(mossServerQueryKeys.mossAccountSession(), {
+      configured: true,
+      authenticated: true,
+      session: null,
+      smsProvider: "aliyun",
+      aliyunSmsConfigured: true,
+      modelGatewayStatus: "transport-degraded",
+    });
+    queryClient.setQueryData(mossServerQueryKeys.mossCloudAccountState(), {
+      configured: true,
+      authenticated: true,
+      account: null,
+      session: null,
+      emailVerificationRequired: false,
+      modelGatewayStatus: "ready",
+    });
+    await render(
+      <QueryClientProvider client={queryClient}>
+        <MossLocalizationProvider>
+          <MossGatewayUnreachableBanner instanceId={"claude_moss" as ProviderInstanceId} />
+        </MossLocalizationProvider>
+      </QueryClientProvider>,
+    );
+    expect(document.querySelector("[data-moss-gateway-unreachable]")).toBeNull();
+  });
 });

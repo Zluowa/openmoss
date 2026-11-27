@@ -44,8 +44,28 @@ export type FetchMossGatewayModelIds = (
   input: FetchMossGatewayModelIdsInput,
 ) => Effect.Effect<MossGatewayModelCatalog | ReadonlyArray<string> | null>;
 
-const DEFAULT_TIMEOUT_MS = 5_000;
+const DEFAULT_TIMEOUT_MS = 12_000;
 const MAX_MODEL_IDS = 512;
+
+function safeGatewayHost(gatewayBaseUrl: string): string {
+  try {
+    return new URL(gatewayBaseUrl).host || "unknown";
+  } catch {
+    return "invalid-url";
+  }
+}
+
+function readErrorCode(error: unknown): string | undefined {
+  if (typeof error !== "object" || error === null) return undefined;
+  const directCode = (error as { code?: unknown }).code;
+  if (typeof directCode === "string" && directCode.length > 0) return directCode;
+  const cause = (error as { cause?: unknown }).cause;
+  if (typeof cause === "object" && cause !== null) {
+    const causeCode = (cause as { code?: unknown }).code;
+    if (typeof causeCode === "string" && causeCode.length > 0) return causeCode;
+  }
+  return undefined;
+}
 
 export function mossGatewayModelsUrl(gatewayBaseUrl: string): string {
   const url = new URL(gatewayBaseUrl);
@@ -74,58 +94,110 @@ export function parseMossGatewayModelIds(payload: unknown): ReadonlyArray<string
   return ids;
 }
 
+interface GatewayDegradedDiagnostic {
+  readonly reason: "http_error" | "malformed_payload" | "fetch_error";
+  readonly httpStatus?: number | undefined;
+  readonly errorName?: string | undefined;
+  readonly errorCode?: string | undefined;
+}
+
+interface FetchCatalogOutcome {
+  readonly catalog: MossGatewayModelCatalog;
+  readonly degraded: GatewayDegradedDiagnostic | null;
+}
+
 /** Default implementation against the live gateway. */
 export const fetchMossGatewayModelIds: FetchMossGatewayModelIds = (input) =>
-  Effect.tryPromise(async () => {
-    const fetchImplementation = input.fetch ?? globalThis.fetch;
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), input.timeoutMs ?? DEFAULT_TIMEOUT_MS);
-    try {
-      const response = await fetchImplementation(mossGatewayModelsUrl(input.gatewayBaseUrl), {
-        method: "GET",
-        headers: {
-          authorization: `Bearer ${input.accessToken}`,
-          accept: "application/json",
-          // Cloudflare's CN edge rejects requests with an empty/unknown
-          // fingerprint. Keep the production server identity explicit so
-          // model discovery works through the real tunnel as it does in the
-          // desktop renderer.
-          "user-agent": "Moss",
-        },
-        redirect: "error",
-        signal: controller.signal,
-      });
-      if (!response.ok) {
-        const status =
-          response.status === 401 || response.status === 403
-            ? "auth-denied"
-            : response.status === 404 || response.status === 402
-              ? "no-entitlement"
-              : "transport-degraded";
-        await response.body?.cancel().catch(() => undefined);
-        return { status, models: [] } satisfies MossGatewayModelCatalog;
-      }
-      const payload = await response.json();
-      const models = parseMossGatewayModelIds(payload);
-      if (models === null) {
-        return { status: "transport-degraded", models: [] } satisfies MossGatewayModelCatalog;
-      }
-      if (models.length === 0) {
-        return { status: "no-entitlement", models: [] } satisfies MossGatewayModelCatalog;
-      }
-      return { status: "ready", models } satisfies MossGatewayModelCatalog;
-    } finally {
-      clearTimeout(timer);
-    }
-  }).pipe(
-    Effect.catch((error) =>
-      Effect.succeed<MossGatewayModelCatalog>(
-        isMossConnectionLevelFailure(error)
+  Effect.gen(function* () {
+    const outcome: FetchCatalogOutcome = yield* Effect.tryPromise(
+      async (): Promise<FetchCatalogOutcome> => {
+        const fetchImplementation = input.fetch ?? globalThis.fetch;
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), input.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+        try {
+          const response = await fetchImplementation(mossGatewayModelsUrl(input.gatewayBaseUrl), {
+            method: "GET",
+            headers: {
+              authorization: `Bearer ${input.accessToken}`,
+              accept: "application/json",
+              // Cloudflare's CN edge rejects requests with an empty/unknown
+              // fingerprint. Keep the production server identity explicit so
+              // model discovery works through the real tunnel as it does in the
+              // desktop renderer.
+              "user-agent": "Moss",
+            },
+            redirect: "error",
+            signal: controller.signal,
+          });
+          if (!response.ok) {
+            const status =
+              response.status === 401 || response.status === 403
+                ? "auth-denied"
+                : response.status === 404 || response.status === 402
+                  ? "no-entitlement"
+                  : "transport-degraded";
+            await response.body?.cancel().catch(() => undefined);
+            return {
+              catalog: { status, models: [] },
+              degraded:
+                status === "transport-degraded"
+                  ? { reason: "http_error", httpStatus: response.status }
+                  : null,
+            };
+          }
+          const payload = await response.json();
+          const models = parseMossGatewayModelIds(payload);
+          if (models === null) {
+            return {
+              catalog: { status: "transport-degraded", models: [] },
+              degraded: { reason: "malformed_payload", httpStatus: response.status },
+            };
+          }
+          if (models.length === 0) {
+            return {
+              catalog: { status: "no-entitlement", models: [] },
+              degraded: null,
+            };
+          }
+          return {
+            catalog: { status: "ready", models },
+            degraded: null,
+          };
+        } finally {
+          clearTimeout(timer);
+        }
+      },
+    ).pipe(
+      Effect.catch((error): Effect.Effect<FetchCatalogOutcome> => {
+        const errorName = error instanceof Error ? error.name : undefined;
+        const errorCode = readErrorCode(error);
+        const catalog: MossGatewayModelCatalog = isMossConnectionLevelFailure(error)
           ? { status: "transport-degraded", models: [], connectionFailed: true }
-          : { status: "transport-degraded", models: [] },
-      ),
-    ),
-  );
+          : { status: "transport-degraded", models: [] };
+        return Effect.succeed({
+          catalog,
+          degraded: {
+            reason: "fetch_error",
+            ...(errorName ? { errorName } : {}),
+            ...(errorCode ? { errorCode } : {}),
+          },
+        });
+      }),
+    );
+
+    if (outcome.degraded) {
+      const degraded = outcome.degraded;
+      yield* Effect.logWarning("Moss model gateway /v1/models check degraded", {
+        gatewayHost: safeGatewayHost(input.gatewayBaseUrl),
+        reason: degraded.reason,
+        ...(degraded.httpStatus !== undefined ? { httpStatus: degraded.httpStatus } : {}),
+        ...(degraded.errorName ? { errorName: degraded.errorName } : {}),
+        ...(degraded.errorCode ? { errorCode: degraded.errorCode } : {}),
+      });
+    }
+
+    return outcome.catalog;
+  });
 
 /** Whether a catalog answer says the request never reached the gateway. */
 export function isMossGatewayCatalogConnectionFailure(

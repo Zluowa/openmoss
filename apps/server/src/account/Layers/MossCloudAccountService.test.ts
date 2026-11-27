@@ -2541,6 +2541,14 @@ describe("MossCloudAccountService", () => {
       expect(JSON.parse(decoder.decode(secrets.values.get(secretName!)))).not.toHaveProperty(
         "needsProviderReconcile",
       );
+
+      // Once reconciliation settles and subsequent provisioning succeeds, the
+      // earlier timeout fallback must not leave `modelGatewayStatus` stuck at
+      // `transport-degraded`.
+      managed.provision.mockReturnValue(Effect.void);
+      const recovered = yield* service.getState().pipe(Effect.timeout("1 second"));
+      expect(recovered.authenticated).toBe(true);
+      expect(recovered.modelGatewayStatus).toBe("ready");
     }).pipe(Effect.provide(makeLayer(secrets.service, managed.service)), Effect.runPromise);
   });
 

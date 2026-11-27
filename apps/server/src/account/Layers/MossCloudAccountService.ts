@@ -66,7 +66,7 @@ const RECOVERY_AUTHORIZATION_TTL_MS = 15 * 60_000;
 // Account state is a local, user-visible read. Provider reconciliation is a
 // best-effort side effect and must never hold the RPC open for the lifetime of
 // a stalled gateway/provider call.
-const DEFAULT_PROVIDER_RECONCILE_TIMEOUT_MS = 5_000;
+const DEFAULT_PROVIDER_RECONCILE_TIMEOUT_MS = 12_000;
 const PKCE_FLOWS = [
   "signup",
   "recovery",
@@ -1101,10 +1101,13 @@ export const makeMossCloudAccountService = (options: MakeMossCloudAccountService
         // replaced the protected session. It must remain strictly read-only:
         // writing a retry marker here could resurrect the stale token that we
         // just read and overwrite the newer session.
-        // This snapshot is returned because live reconciliation timed out. A
-        // prior `ready` value must not survive as evidence for this read.
-        modelGatewayStatus = "transport-degraded";
-        return accountState(selected, stored);
+        // This snapshot is returned because live reconciliation timed out. Do not
+        // overwrite the shared `modelGatewayStatus` closure for other reads, but
+        // do not let a prior `ready` value survive as evidence for this read.
+        return {
+          ...accountState(selected, stored),
+          modelGatewayStatus: "transport-degraded" as const,
+        };
       });
 
     const persistSession = (input: {

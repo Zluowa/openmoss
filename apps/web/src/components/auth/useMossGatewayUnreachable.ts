@@ -83,8 +83,7 @@ export function useMossSignInState(): "signed-in" | "checking" | "signed-out" {
 }
 
 export function useMossGatewayUnreachable(): boolean {
-  const { accounts } = useMossAccountGatewayInputs();
-  return accounts.some(isMossGatewayUnreachableState);
+  return resolveMossAccountGatewayState(useMossAccountGatewayInputs()) === "unreachable";
 }
 
 export function useMossAccountGatewayState(): MossAccountGatewayState {

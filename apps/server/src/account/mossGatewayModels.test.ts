@@ -170,6 +170,20 @@ describe("mossGatewayModels", () => {
       ),
     ).resolves.toEqual({ status: "transport-degraded", models: [] });
   });
+
+  it("maps HTTP 503 to transport-degraded cleanly", async () => {
+    const unavailable = (async () =>
+      new Response("bad gateway", { status: 503 })) as unknown as typeof fetch;
+    await expect(
+      Effect.runPromise(
+        fetchMossGatewayModelIds({
+          gatewayBaseUrl: "https://moss.example.cn/functions/v1/moss-model-gateway",
+          accessToken: "secret-bearer-token",
+          fetch: unavailable,
+        }),
+      ),
+    ).resolves.toEqual({ status: "transport-degraded", models: [] });
+  });
 });
 
 describe("mossGatewayCatalogAllowsProvisioning", () => {

@@ -110,6 +110,23 @@ export async function synchronizeMossManagedChatReadiness(queryClient: QueryClie
   await synchronizeMossManagedChatCaches(queryClient);
 }
 
+export const MOSS_GATEWAY_RECOVERY_POLL_MS = 10_000;
+
+function pollIntervalWhenGatewayDegraded(
+  data:
+    | {
+        readonly authenticated?: boolean | undefined;
+        readonly active?: boolean | undefined;
+        readonly modelGatewayStatus?: string | undefined;
+      }
+    | undefined,
+  options: { readonly requireActive?: boolean } = {},
+): number | false {
+  if (data?.authenticated !== true) return false;
+  if (options.requireActive && data.active !== true) return false;
+  return data.modelGatewayStatus === "transport-degraded" ? MOSS_GATEWAY_RECOVERY_POLL_MS : false;
+}
+
 export function serverMossAccountSessionQueryOptions(
   input: { enabled?: boolean; retry?: boolean | number } = {},
 ) {
@@ -121,6 +138,7 @@ export function serverMossAccountSessionQueryOptions(
       return api.server.getMossAccountSession();
     },
     staleTime: 15_000,
+    refetchInterval: (query) => pollIntervalWhenGatewayDegraded(query.state.data),
     retry: input.retry ?? 3,
     retryDelay: (attemptIndex) => Math.min(250 * 2 ** attemptIndex, 1_000),
   });
@@ -135,6 +153,7 @@ export function serverMossCloudAccountStateQueryOptions(input: { enabled?: boole
       return api.server.getMossCloudAccountState();
     },
     staleTime: 15_000,
+    refetchInterval: (query) => pollIntervalWhenGatewayDegraded(query.state.data),
     retry: false,
   });
 }
@@ -507,6 +526,8 @@ export function serverMossEnterpriseKeyStateQueryOptions(input: { enabled?: bool
       return api.server.getMossEnterpriseKeyState();
     },
     staleTime: 15_000,
+    refetchInterval: (query) =>
+      pollIntervalWhenGatewayDegraded(query.state.data, { requireActive: true }),
     // Packaged Windows can briefly expose the page before the local RPC
     // transport has completed its first connection; mutations stay user driven.
     retry: 2,
