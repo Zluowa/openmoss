@@ -26,6 +26,7 @@ import { useComposerDraftStore } from "~/composerDraftStore";
 import { useTheme, type ThemeMode } from "~/hooks/useTheme";
 import { MossLocalizationProvider } from "~/localization";
 import { resetEmbeddedBundleChecks } from "~/lib/embeddedBundleCheck";
+import { readMossImagesAccountIdentity } from "~/lib/mossImagesAccountBoundary";
 import { artifactAssistantThreadKey, pageAssistantThreads } from "~/lib/pageAi/pageAssistantThread";
 import { pagesQueryKeys } from "~/lib/pagesReactQuery";
 import { serverQueryKeys } from "~/lib/serverReactQuery";
@@ -35,6 +36,7 @@ import { createDataSpaceFixture, pageDocument } from "~/test/mossDataSpaceFixtur
 import { mossServerQueryKeys } from "./auth/mossServerReactQuery";
 import { MossDataSpaceDestination } from "./MossDataSpaceDestination";
 import { SPACE_DOCK_PERSIST_KEYS } from "./space/spaceCanvasDockContract";
+import { markWelcomeOffered } from "./space/welcome/spaceWelcome";
 import { TooltipProvider } from "./ui/tooltip";
 
 const SHOTS = import.meta.env.VITE_MOSS_PAGE_EDITOR_SHOTS as string | undefined;
@@ -165,6 +167,7 @@ async function mountSpace(themeMode: ThemeMode = "light") {
     },
     activeRealm: "cn",
   });
+  markWelcomeOffered(readMossImagesAccountIdentity(client));
   const rootRoute = createRootRoute({
     component: () => (
       <QueryClientProvider client={client}>

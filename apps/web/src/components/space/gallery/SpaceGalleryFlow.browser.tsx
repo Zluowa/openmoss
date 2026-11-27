@@ -494,9 +494,37 @@ async function mount(
     firstRun?: boolean;
     failFirstCreateSpace?: boolean;
     existingNote?: boolean;
+    extraLibraryCount?: number;
   } = {},
 ) {
   const full = buildData();
+  const extraSampleUrl =
+    (options.extraLibraryCount ?? 0) > 0
+      ? paint(400, 300, scene(["#d8e6f2", "#f2dfd3"], "#7a8b74", ["#c2644a", "#e4d5c3"]))
+      : "";
+  const extraLibrary: LibraryItem[] = Array.from(
+    { length: options.extraLibraryCount ?? 0 },
+    (_, index) => {
+      const imagePath = `/extra/extra-img-${index}.png`;
+      if (extraSampleUrl) full.urls.set(imagePath, extraSampleUrl);
+      return {
+        id: `extra-img-${index}`,
+        title: `图库图 ${index}.png`,
+        kind: "image",
+        source: "upload",
+        sourceCli: null,
+        path: imagePath,
+        mimeType: "image/png",
+        size: 1024,
+        favorite: false,
+        folderId: null,
+        trashedAt: null,
+        originationThreadId: null,
+        createdAt: at(index),
+        updatedAt: at(index),
+      } as unknown as LibraryItem;
+    },
+  );
   // An empty 资料空间: what a person sees on their first visit.
   const data = options.empty
     ? {
@@ -507,7 +535,16 @@ async function mount(
         library: [],
         tags: {},
       }
-    : full;
+    : extraLibrary.length > 0
+      ? {
+          ...full,
+          spaces: [],
+          pages: [],
+          libraryFolders: [],
+          library: extraLibrary,
+          tags: {},
+        }
+      : full;
   const fixture = createDataSpaceFixture();
   // Typed items (slides, sheets…) made from templates during the first run.
   const typed: Array<{ page: Page; data: string | null }> = [];
@@ -689,6 +726,10 @@ async function mount(
   }
   if (options.empty) {
     await expect.element(page.getByRole("region", { name: "新建" })).toBeVisible();
+    return;
+  }
+  if ((options.extraLibraryCount ?? 0) > 0) {
+    await expect.element(page.getByRole("button", { name: /图片 图库图/u }).first()).toBeVisible();
     return;
   }
   await expect.element(page.getByRole("button", { name: /^文件夹 品牌方向/u })).toBeVisible();
@@ -938,5 +979,27 @@ describe("资料空间", () => {
     await expect
       .element(page.getByRole("menuitem", { name: "加载示例资料「苔」", exact: true }))
       .not.toBeInTheDocument();
+  });
+
+  it("auto-seeds 「苔」 once even when existing pages are present if no spaces exist", async () => {
+    await mount("light", { firstRun: true, existingNote: true });
+    await expect.element(page.getByRole("button", { name: /^文件夹 苔，/u })).toBeVisible();
+    await expect.element(page.getByText("已有笔记", { exact: true }).first()).toBeVisible();
+    expect(welcomeOffered(readMossImagesAccountIdentity(client))).toBe(true);
+  });
+
+  it("paginates large grids cleanly at 48 items and opens images immediately", async () => {
+    await mount("light", { extraLibraryCount: 60 });
+    const home = content();
+    expect(document.querySelectorAll("[data-space-item]").length).toBe(48);
+    const loadMoreBtn = home.getByRole("button", { name: "加载更多（剩余 12 项）", exact: true });
+    await expect.element(loadMoreBtn).toBeInTheDocument();
+    // Scrolling toward the sentinel auto-advances the progressive grid to all 60 items.
+    loadMoreBtn.element().scrollIntoView({ block: "center" });
+    await expect.poll(() => document.querySelectorAll("[data-space-item]").length).toBe(60);
+    await home.getByRole("button", { name: "图片 图库图 0", exact: true }).click();
+    const inspector = page.getByRole("complementary", { name: "图片信息" });
+    await expect.element(inspector).toBeVisible();
+    await expect.element(inspector.getByText("400 × 300", { exact: true })).toBeVisible();
   });
 });

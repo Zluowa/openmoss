@@ -4,7 +4,7 @@
 // Layer: Space UI (gallery)
 
 import type { LibraryFolder, PageId, PageSpace, PagesReadResult, SpaceId } from "@moss/contracts";
-import { useQueries } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import { createContext, type ReactNode, useCallback, useContext, useMemo } from "react";
 import { create } from "zustand";
 
@@ -80,19 +80,14 @@ export function useGallery(): GalleryData {
 }
 
 /** Notes read for cards and search; past this the rest load when opened. */
-const NOTE_READ_LIMIT = 300;
+const NOTE_READ_LIMIT = 48;
 const EMPTY_TAGS: readonly string[] = [];
+const LOCAL_IMAGE_GRANT_STALE_MS = 10 * 60_000;
 
 function combineNoteContents(
   results: readonly { readonly data?: PagesReadResult | undefined }[],
 ): (string | null)[] {
   return results.map((result) => result.data?.content ?? null);
-}
-
-function combinePreviewGrants(
-  results: readonly { readonly data?: { readonly grant?: string | null } | undefined }[],
-): (string | null)[] {
-  return results.map((result) => result.data?.grant ?? null);
 }
 
 export function GalleryProvider(
@@ -153,40 +148,9 @@ export function GalleryProvider(
     });
     return map;
   }, [notes, contents]);
-  const localImagePaths = useMemo(() => {
-    const paths = new Set<string>();
-    for (const item of items) {
-      if (item.kind !== "image" || item.source.type !== "library") continue;
-      const entry = item.source.item;
-      if (entry.path && !spaceMossMediaPath(entry)) paths.add(entry.path);
-    }
-    return [...paths];
-  }, [items]);
-  const canGrant =
-    !hasLocalImageUrlResolver() &&
-    typeof ensureNativeApi().projects?.createLocalFilePreviewGrant === "function";
-  const grantQueries = useMemo(
-    () =>
-      localImagePaths.map((path) =>
-        projectLocalPreviewGrantQueryOptions({ path, enabled: canGrant }),
-      ),
-    [localImagePaths, canGrant],
-  );
-  const grantResults = useQueries({
-    queries: grantQueries,
-    combine: combinePreviewGrants,
-  });
-  const grantByPath = useMemo(() => {
-    const map = new Map<string, string>();
-    localImagePaths.forEach((path, index) => {
-      const grant = grantResults[index];
-      if (grant) map.set(path, grant);
-    });
-    return map;
-  }, [localImagePaths, grantResults]);
   const imageSrc = useCallback(
-    (item: SpaceItem): string | null => resolveGalleryImageSrc(item, grantByPath),
-    [grantByPath],
+    (item: SpaceItem): string | null => resolveGalleryImageSrc(item),
+    [],
   );
   const localTags = useGalleryLocalStore((state) => state.tags);
   const collections = useGalleryLocalStore((state) => state.collections);
@@ -290,10 +254,64 @@ export function galleryImageSrc(item: SpaceItem): string | null {
   return resolveGalleryImageSrc(item);
 }
 
-/** Picture URL from the enclosing GalleryProvider (with preview grants), or direct fallback. */
-export function useGalleryImageSrc(item: SpaceItem): string | null {
+export interface GalleryImageOptions {
+  /** Only request a local preview grant when the caller can actually display the image. */
+  readonly enabled?: boolean;
+  /** Keep refreshing the preview grant periodically (used by the full-size viewer). */
+  readonly keepAlive?: boolean;
+}
+
+export interface GalleryImageSourceState {
+  readonly src: string | null;
+  readonly refreshGrant: () => void;
+}
+
+/** Lazily resolves an image's preview URL per-card and provides a single-shot retry helper. */
+export function useGalleryImageSource(
+  item: SpaceItem,
+  options?: GalleryImageOptions,
+): GalleryImageSourceState {
   const gallery = useOptionalGallery();
-  return gallery ? gallery.imageSrc(item) : resolveGalleryImageSrc(item);
+  const entry = item.source.type === "library" ? item.source.item : null;
+  const grantPath =
+    entry?.path &&
+    item.kind === "image" &&
+    !spaceMossMediaPath(entry) &&
+    !hasLocalImageUrlResolver() &&
+    typeof ensureNativeApi().projects?.createLocalFilePreviewGrant === "function"
+      ? entry.path
+      : null;
+  const baseOptions = projectLocalPreviewGrantQueryOptions({
+    path: grantPath,
+    enabled: (options?.enabled ?? true) && grantPath !== null,
+    staleTime: options?.keepAlive ? 60_000 : LOCAL_IMAGE_GRANT_STALE_MS,
+  });
+  const grantQuery = useQuery({
+    ...baseOptions,
+    ...(options?.keepAlive ? {} : { refetchInterval: false as const }),
+  });
+  const grantMap = useMemo(() => {
+    if (!grantPath || !grantQuery.data?.grant) return undefined;
+    return new Map([[grantPath, grantQuery.data.grant]]);
+  }, [grantPath, grantQuery.data?.grant]);
+  const src = useMemo(() => {
+    if (grantPath) {
+      return resolveGalleryImageSrc(item, grantMap);
+    }
+    return gallery ? gallery.imageSrc(item) : resolveGalleryImageSrc(item);
+  }, [gallery, grantMap, grantPath, item]);
+  const { refetch } = grantQuery;
+  const refreshGrant = useCallback(() => {
+    if (grantPath) {
+      void refetch();
+    }
+  }, [grantPath, refetch]);
+  return { src, refreshGrant };
+}
+
+/** Picture URL with per-item lazy preview grant resolution. */
+export function useGalleryImageSrc(item: SpaceItem, options?: GalleryImageOptions): string | null {
+  return useGalleryImageSource(item, options).src;
 }
 
 /** Note images: absolute and data addresses load as they are, app paths through the server. */

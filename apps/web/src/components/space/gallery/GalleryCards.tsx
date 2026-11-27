@@ -4,7 +4,15 @@
 //          blocks, and a picture at its own proportions.
 // Layer: Space UI (gallery)
 
-import { type ComponentProps, type CSSProperties, type ReactNode, useState } from "react";
+import {
+  type ComponentProps,
+  type CSSProperties,
+  type ReactNode,
+  type RefObject,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 
 import { CheckIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
@@ -99,7 +107,14 @@ function FolderPeek(props: { item: SpaceItem; index: number; total: number }) {
         style={style}
         className="block h-28 min-w-0 flex-1 overflow-hidden rounded-inline border border-border/60 bg-card shadow-xs"
       >
-        <img src={src} alt="" className="h-full w-full object-cover" draggable={false} />
+        <img
+          src={src}
+          alt=""
+          loading="lazy"
+          decoding="async"
+          className="h-full w-full object-cover"
+          draggable={false}
+        />
       </span>
     );
   }
@@ -221,6 +236,41 @@ function NoteBlockView(props: { block: NoteBlock }): ReactNode {
   }
 }
 
+/** Observes an element and latches true once it enters (or approaches) the viewport. */
+export function useNearViewport(ref: RefObject<Element | null>, active: boolean): boolean {
+  const [visible, setVisible] = useState(
+    () => !active || typeof IntersectionObserver === "undefined",
+  );
+  useEffect(() => {
+    if (!active) {
+      setVisible(false);
+      return;
+    }
+    if (typeof IntersectionObserver === "undefined") {
+      setVisible(true);
+      return;
+    }
+    const element = ref.current;
+    if (!element) {
+      // Initial mount before the ref attaches or non-observed wrappers: show promptly.
+      setVisible(true);
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setVisible(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: "320px" },
+    );
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [active, ref]);
+  return visible;
+}
+
 // ---------------------------------------------------------------------------------------------
 // Picture
 
@@ -230,38 +280,56 @@ export function GalleryPicture(props: {
   src: string | null;
   className?: string;
   fill?: boolean;
+  onRetrySrc?: (() => void) | undefined;
 }) {
   const aspect = useGalleryAspects((state) => state.aspects[props.item.key]);
   const setAspect = useGalleryAspects((state) => state.setAspect);
   const [failed, setFailed] = useState(false);
+  const retriedSrcRef = useRef<string | null>(null);
+  useEffect(() => {
+    setFailed(false);
+  }, [props.src]);
   if (!props.src || failed) {
     const Icon = spaceItemMeta(props.item).icon;
     return (
       <span
         className={cn(
-          "flex aspect-[4/3] items-center justify-center text-muted-foreground",
+          "flex aspect-[4/3] flex-col items-center justify-center gap-1.5 px-3 text-center text-muted-foreground",
           props.fill && "aspect-auto h-full",
           props.className,
         )}
       >
-        <Icon className="size-6" />
+        <Icon className="size-6 opacity-70" />
+        {failed ? (
+          <span className="max-w-full truncate text-ui-xs">
+            {spaceItemDisplayTitle(props.item)}
+          </span>
+        ) : null}
       </span>
     );
   }
   return (
     <img
-      key={props.src}
       src={props.src}
       alt={spaceItemDisplayTitle(props.item)}
+      loading="lazy"
+      decoding="async"
       draggable={false}
-      style={props.fill || aspect === undefined ? undefined : { aspectRatio: String(aspect) }}
+      style={props.fill ? undefined : { aspectRatio: String(aspect ?? 4 / 3) }}
       className={cn("block object-cover", props.fill && "h-full w-full", props.className)}
       onLoad={(event) => {
         const image = event.currentTarget;
         if (image.naturalHeight > 0)
           setAspect(props.item.key, image.naturalWidth / image.naturalHeight);
       }}
-      onError={() => setFailed(true)}
+      onError={() => {
+        if (props.onRetrySrc && retriedSrcRef.current !== props.src) {
+          retriedSrcRef.current = props.src;
+          props.onRetrySrc();
+          return;
+        }
+        setFailed(true);
+      }}
     />
   );
 }

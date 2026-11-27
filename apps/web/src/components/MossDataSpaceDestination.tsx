@@ -55,9 +55,9 @@ import { fileIntoSpaces, type GalleryFolder } from "./space/gallery/galleryModel
 import { GalleryImageViewer } from "./space/gallery/GalleryImageViewer";
 import {
   WELCOME_FOLDER_TITLE,
-  isBlankSpace,
   markWelcomeOffered,
   seedWelcomeSpace,
+  shouldOfferWelcomeSpace,
   welcomeOffered,
 } from "./space/welcome/spaceWelcome";
 import { GallerySearchDialog } from "./space/gallery/GallerySearchDialog";
@@ -325,24 +325,8 @@ function DataSpaceWorkspace({
   );
   useEffect(() => {
     if (welcomeStarted.current || welcomeOffered(account)) return;
-    if (
-      !listQuery.data ||
-      !spacesQuery.data ||
-      !outputsQuery.data ||
-      !libraryQuery.data ||
-      appsQuery.isLoading
-    )
-      return;
-    if (
-      !isBlankSpace({
-        pages: listQuery.data.pages,
-        spaces: spacesQuery.data.spaces,
-        apps: appsQuery.data ?? [],
-        outputs: outputsQuery.data.outputs,
-        library: libraryQuery.data.items,
-      })
-    )
-      return;
+    if (!spacesQuery.data || appsQuery.isLoading) return;
+    if (!shouldOfferWelcomeSpace({ spaces: spacesQuery.data.spaces })) return;
     welcomeStarted.current = true;
     void seedWelcomeSpace({
       api: ensureNativeApi(),

@@ -37,7 +37,7 @@ export function GalleryImageViewer(props: {
 }) {
   const gallery = useGallery();
   const { item } = props;
-  const src = useGalleryImageSrc(item);
+  const src = useGalleryImageSrc(item, { enabled: true, keepAlive: true });
   const [size, setSize] = useState<{ width: number; height: number } | null>(null);
   const colors = useMainColors(src);
   const folder = gallery.folderOf(item);

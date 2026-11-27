@@ -7,7 +7,7 @@
 
 import { parseSheetWorkbook, readSheetRange } from "@moss/shared/spaceItems/sheetWorkbook";
 import { useQuery } from "@tanstack/react-query";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 
 import { EllipsisIcon, PinFilledIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
@@ -26,8 +26,9 @@ import {
   GalleryPicture,
   NoteBlocks,
   SpaceCardButton,
+  useNearViewport,
 } from "./gallery/GalleryCards";
-import { useGalleryImageSrc, useOptionalGallery } from "./gallery/GalleryContext";
+import { useGalleryImageSource, useOptionalGallery } from "./gallery/GalleryContext";
 import { galleryClassOf, noteBlocks } from "./gallery/galleryModel";
 import { Menu, MenuItem, MenuSeparator, MenuTrigger } from "../ui/menu";
 import {
@@ -89,7 +90,11 @@ export function SpaceItemCard(
     }
   }, [item.key, item.kind, isDashboard]);
 
-  const resolvedImageSrc = useGalleryImageSrc(item);
+  const imageCardRef = useRef<HTMLDivElement | null>(null);
+  const galleryKind = galleryClassOf(item);
+  const wantsGridImage = props.view === "grid" && galleryKind === "image";
+  const nearViewport = useNearViewport(imageCardRef, wantsGridImage);
+  const imageSource = useGalleryImageSource(item, { enabled: wantsGridImage && nearViewport });
 
   if (props.view === "list") {
     return (
@@ -142,12 +147,15 @@ export function SpaceItemCard(
     );
   }
 
-  const galleryKind = galleryClassOf(item);
-  const imageSrc = galleryKind === "image" ? resolvedImageSrc : null;
+  const imageSrc = galleryKind === "image" ? imageSource.src : null;
   if (galleryKind === "note" || galleryKind === "image") {
     // Notes show their own text and pictures their own shape: they are what they hold.
     return (
-      <div className="group/space-item relative" data-space-item={item.key}>
+      <div
+        ref={galleryKind === "image" ? imageCardRef : undefined}
+        className="group/space-item relative"
+        data-space-item={item.key}
+      >
         {galleryKind === "note" ? (
           <NoteCard item={item} marked={props.marked === true} onOpen={props.onOpen} />
         ) : (
@@ -157,7 +165,12 @@ export function SpaceItemCard(
             onClick={() => props.onOpen(item)}
           >
             <span data-space-card-preview="image" className="block">
-              <GalleryPicture item={item} src={imageSrc} className="w-full" />
+              <GalleryPicture
+                item={item}
+                src={imageSrc}
+                className="w-full"
+                onRetrySrc={imageSource.refreshGrant}
+              />
             </span>
             <span className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-col bg-black/60 px-3 py-2 text-white opacity-0 transition-opacity group-hover/space-item:opacity-100 group-focus-within/space-item:opacity-100">
               <span className="truncate text-ui-sm font-medium">{spaceItemDisplayTitle(item)}</span>

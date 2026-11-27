@@ -10,7 +10,7 @@ import {
   BUILT_IN_TEMPLATES,
   type SpaceTemplateDefinition,
 } from "@moss/shared/spaceItems/templates";
-import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 
 import {
   CheckIcon,
@@ -72,6 +72,9 @@ import { spaceKindMeta } from "./spaceKinds";
 const VIEW_STORAGE_KEY = "moss:space:view";
 /** Below this many items the home still offers 新建 and 快速开始. */
 const YOUNG_SPACE_ITEMS = 6;
+/** Progressive render batch size so large 资料空间 collections stay responsive. */
+const INITIAL_PAGE_SIZE = 48;
+const PAGE_STEP = 48;
 
 const OWNER_FILTERS: ReadonlyArray<{ id: SpaceOwnerFilter; label: string }> = [
   { id: "any", label: "全部来源" },
@@ -217,6 +220,8 @@ export function SpaceHome(
   const [launchingTemplateId, setLaunchingTemplateId] = useState<string | null>(null);
   const [launchError, setLaunchError] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  const [visibleCount, setVisibleCount] = useState(INITIAL_PAGE_SIZE);
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 60_000);
@@ -290,6 +295,30 @@ export function SpaceHome(
     showFolders ? folders.flatMap((folder) => folder.items.map((item) => item.key)) : [],
   );
   const gridItems = showFolders ? visible.filter((item) => !folderedKeys.has(item.key)) : visible;
+  const currentSectionKey = sectionKey(props.section);
+  useEffect(() => {
+    setVisibleCount(INITIAL_PAGE_SIZE);
+  }, [props.section.type, currentSectionKey, effectiveKind, owner, sort, view]);
+  const pagedTotalCount = view === "grid" ? gridItems.length : view === "list" ? visible.length : 0;
+  const pagedGridItems = view === "grid" ? gridItems.slice(0, visibleCount) : gridItems;
+  const pagedListItems = view === "list" ? visible.slice(0, visibleCount) : visible;
+  const remainingCount = Math.max(0, pagedTotalCount - visibleCount);
+  const hasMore = remainingCount > 0;
+  useEffect(() => {
+    if (!hasMore || typeof IntersectionObserver === "undefined") return;
+    const sentinel = loadMoreRef.current;
+    if (!sentinel) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setVisibleCount((current) => current + PAGE_STEP);
+        }
+      },
+      { rootMargin: "600px" },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasMore, visibleCount]);
   const canvasGroups: CanvasGroup[] = showFolders
     ? [
         ...folders
@@ -515,52 +544,80 @@ export function SpaceHome(
             />
           </div>
         ) : view === "grid" ? (
-          <SpaceMasonryGrid data-space-grid>
-            {[
-              ...(showFolders
-                ? folders.map((folder) => ({
-                    key: folder.key,
-                    node: (
-                      <SpaceFolderCard
-                        folder={folder}
-                        marked={props.marked === folder.key}
-                        onOpen={(entry) => props.onOpenFolder?.(entry)}
-                      />
-                    ),
-                  }))
-                : []),
-              ...gridItems.map((item) => ({
-                key: item.key,
-                node: (
+          <>
+            <SpaceMasonryGrid data-space-grid>
+              {[
+                ...(showFolders
+                  ? folders.map((folder) => ({
+                      key: folder.key,
+                      node: (
+                        <SpaceFolderCard
+                          folder={folder}
+                          marked={props.marked === folder.key}
+                          onOpen={(entry) => props.onOpenFolder?.(entry)}
+                        />
+                      ),
+                    }))
+                  : []),
+                ...pagedGridItems.map((item) => ({
+                  key: item.key,
+                  node: (
+                    <SpaceItemCard
+                      {...props}
+                      item={item}
+                      view="grid"
+                      place={props.placeOf(item)}
+                      now={now}
+                      marked={props.marked === item.key}
+                    />
+                  ),
+                })),
+              ]}
+            </SpaceMasonryGrid>
+            {hasMore ? (
+              <div ref={loadMoreRef} className="flex justify-center pt-6 pb-2">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="text-muted-foreground"
+                  onClick={() => setVisibleCount((current) => current + PAGE_STEP)}
+                >
+                  加载更多（剩余 {remainingCount} 项）
+                </Button>
+              </div>
+            ) : null}
+          </>
+        ) : (
+          <>
+            <div role="grid" aria-label="条目列表" data-space-list>
+              <SpaceListHeader />
+              <div role="rowgroup" className="flex flex-col gap-0.5 pt-1">
+                {pagedListItems.map((item) => (
                   <SpaceItemCard
+                    key={item.key}
                     {...props}
                     item={item}
-                    view="grid"
+                    view="list"
                     place={props.placeOf(item)}
                     now={now}
                     marked={props.marked === item.key}
                   />
-                ),
-              })),
-            ]}
-          </SpaceMasonryGrid>
-        ) : (
-          <div role="grid" aria-label="条目列表" data-space-list>
-            <SpaceListHeader />
-            <div role="rowgroup" className="flex flex-col gap-0.5 pt-1">
-              {visible.map((item) => (
-                <SpaceItemCard
-                  key={item.key}
-                  {...props}
-                  item={item}
-                  view="list"
-                  place={props.placeOf(item)}
-                  now={now}
-                  marked={props.marked === item.key}
-                />
-              ))}
+                ))}
+              </div>
             </div>
-          </div>
+            {hasMore ? (
+              <div ref={loadMoreRef} className="flex justify-center pt-6 pb-2">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="text-muted-foreground"
+                  onClick={() => setVisibleCount((current) => current + PAGE_STEP)}
+                >
+                  加载更多（剩余 {remainingCount} 项）
+                </Button>
+              </div>
+            ) : null}
+          </>
         )}
       </div>
     </div>

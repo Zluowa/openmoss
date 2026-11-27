@@ -287,7 +287,12 @@ export function isBlankSpace(input: {
   );
 }
 
-const offeredKey = (account: string) => `moss:space:welcome:v1:${account}`;
+/** True when no live (non-trashed) preset or user space folder exists yet. */
+export function shouldOfferWelcomeSpace(input: { readonly spaces: readonly PageSpace[] }): boolean {
+  return input.spaces.every((space) => space.trashedAt !== null);
+}
+
+const offeredKey = (account: string) => `moss:space:welcome:v2:${account}`;
 
 /** Whether this account was already given the samples on this device (kept or not). */
 export function welcomeOffered(account: string): boolean {

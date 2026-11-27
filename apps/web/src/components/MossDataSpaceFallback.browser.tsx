@@ -15,8 +15,10 @@ import { cleanup, render } from "vitest-browser-react";
 import { MossDataSpaceDestination } from "./MossDataSpaceDestination";
 import { TooltipProvider } from "./ui/tooltip";
 import { MossLocalizationProvider } from "~/localization";
+import { readMossImagesAccountIdentity } from "~/lib/mossImagesAccountBoundary";
 import { serverQueryKeys } from "~/lib/serverReactQuery";
 import { mossServerQueryKeys } from "./auth/mossServerReactQuery";
+import { markWelcomeOffered } from "./space/welcome/spaceWelcome";
 import { useStore } from "~/store";
 import { initialState } from "~/storeState";
 import { createDataSpaceFixture, pageDocument } from "~/test/mossDataSpaceFixture";
@@ -40,6 +42,7 @@ async function mount() {
   });
   client.setQueryData(serverQueryKeys.settings(), DEFAULT_SERVER_SETTINGS_VIEW);
   account(fixture.state.account);
+  markWelcomeOffered(readMossImagesAccountIdentity(client));
   const route = createRootRoute({
     component: () => (
       <QueryClientProvider client={client}>

@@ -30,11 +30,13 @@ import { cleanup, render } from "vitest-browser-react";
 
 import { resetThemeSnapshotCacheForTests, useTheme } from "~/hooks/useTheme";
 import { MossLocalizationProvider } from "~/localization";
+import { readMossImagesAccountIdentity } from "~/lib/mossImagesAccountBoundary";
 import { serverQueryKeys } from "~/lib/serverReactQuery";
 import { createDataSpaceFixture, pageDocument } from "~/test/mossDataSpaceFixture";
 import { DEFAULT_THEME_STATE, serializeThemeState } from "~/theme/theme.logic";
 import { mossServerQueryKeys } from "../../auth/mossServerReactQuery";
 import { MossDataSpaceDestination } from "../../MossDataSpaceDestination";
+import { markWelcomeOffered } from "../../space/welcome/spaceWelcome";
 import { TooltipProvider } from "../../ui/tooltip";
 
 const SHOTS = import.meta.env.VITE_MOSS_DESIGN_SHOTS === "1";
@@ -129,6 +131,7 @@ async function mount(theme: "light" | "dark" = "light") {
     },
     activeRealm: "cn",
   });
+  markWelcomeOffered(readMossImagesAccountIdentity(client));
   const route = createRootRoute({
     component: () => (
       <QueryClientProvider client={client}>
@@ -174,7 +177,7 @@ beforeEach(async () => {
 afterEach(async () => {
   await cleanup();
   (window as { nativeApi?: NativeApi | undefined }).nativeApi = previousApi;
-  window.localStorage.removeItem("moss:theme");
+  window.localStorage.clear();
   resetThemeSnapshotCacheForTests();
   window.document.documentElement.classList.remove("dark");
 });

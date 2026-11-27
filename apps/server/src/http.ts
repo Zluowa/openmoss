@@ -1549,55 +1549,80 @@ export const localImageEffectRouteLayer = HttpRouter.add(
       yield* requireAuthenticatedRequest;
     }
 
-    // Dedicated per-account Codex homes anchor their own generated-image roots;
-    // resolve them from settings when the service can be read so those images
-    // stay servable. When settings are unavailable, configured roots cannot be
-    // trusted, but auth-fresh live session homes remain eligible.
-    const settingsService = yield* Effect.serviceOption(ServerSettingsService);
-    const codexSettingsScope = Option.isSome(settingsService)
-      ? yield* settingsService.value.getSettings.pipe(
-          Effect.map((settings) => ({
-            configuredHomePaths: codexConfiguredHomePathsFromSettings(settings),
-            enabledProviderInstanceIds: enabledCodexProviderInstanceIdsFromSettings(settings),
-          })),
-          Effect.catch(() => Effect.succeed(null)),
+    const previewGrant = url.searchParams.get("grant");
+    const isDownload = url.searchParams.get("download") === "1";
+    const requestedPath = url.searchParams.get("path");
+    const cwd = url.searchParams.get("cwd");
+    const threadId = url.searchParams.get("threadId");
+    const scratchWorkspacesRoot = resolveScratchWorkspacesRoot();
+
+    // Fast path: when a valid preview grant is presented, resolve directly without
+    // loading settings and Codex home directories on every thumbnail request.
+    let previewFile = previewGrant
+      ? yield* Effect.promise(() =>
+          resolveAllowedLocalPreviewFile({
+            requestedPath,
+            cwd,
+            codexHomePaths: [],
+            scratchWorkspacesRoot,
+            allowAbsoluteLocalPreviewFile: true,
+            previewGrant,
+            allowAnyExtension: isDownload,
+            threadId,
+          }).catch(() => null),
         )
       : null;
-    const adapterRegistry = yield* Effect.serviceOption(ProviderAdapterRegistry);
-    const liveCodexHomePaths = Option.isSome(adapterRegistry)
-      ? yield* adapterRegistry.value.getByProvider("codex").pipe(
-          Effect.flatMap((adapter) =>
-            adapter.listGeneratedImageHomePaths
-              ? adapter.listGeneratedImageHomePaths(
-                  codexSettingsScope
-                    ? {
-                        enabledProviderInstanceIds: codexSettingsScope.enabledProviderInstanceIds,
-                      }
-                    : undefined,
-                )
-              : Effect.succeed<readonly CodexGeneratedImageHomeCandidate[]>([]),
-          ),
-          Effect.catch(() => Effect.succeed<readonly CodexGeneratedImageHomeCandidate[]>([])),
-        )
-      : [];
-    const codexHomePaths: readonly CodexGeneratedImageHomeCandidate[] = [
-      ...(codexSettingsScope?.configuredHomePaths ?? []),
-      ...liveCodexHomePaths,
-    ];
 
-    const isDownload = url.searchParams.get("download") === "1";
-    const previewFile = yield* Effect.promise(() =>
-      resolveAllowedLocalPreviewFile({
-        requestedPath: url.searchParams.get("path"),
-        cwd: url.searchParams.get("cwd"),
-        codexHomePaths,
-        scratchWorkspacesRoot: resolveScratchWorkspacesRoot(),
-        allowAbsoluteLocalPreviewFile: true,
-        previewGrant: url.searchParams.get("grant"),
-        allowAnyExtension: isDownload,
-        threadId: url.searchParams.get("threadId"),
-      }).catch(() => null),
-    );
+    if (!previewFile) {
+      // Dedicated per-account Codex homes anchor their own generated-image roots;
+      // resolve them from settings when the service can be read so those images
+      // stay servable. When settings are unavailable, configured roots cannot be
+      // trusted, but auth-fresh live session homes remain eligible.
+      const settingsService = yield* Effect.serviceOption(ServerSettingsService);
+      const codexSettingsScope = Option.isSome(settingsService)
+        ? yield* settingsService.value.getSettings.pipe(
+            Effect.map((settings) => ({
+              configuredHomePaths: codexConfiguredHomePathsFromSettings(settings),
+              enabledProviderInstanceIds: enabledCodexProviderInstanceIdsFromSettings(settings),
+            })),
+            Effect.catch(() => Effect.succeed(null)),
+          )
+        : null;
+      const adapterRegistry = yield* Effect.serviceOption(ProviderAdapterRegistry);
+      const liveCodexHomePaths = Option.isSome(adapterRegistry)
+        ? yield* adapterRegistry.value.getByProvider("codex").pipe(
+            Effect.flatMap((adapter) =>
+              adapter.listGeneratedImageHomePaths
+                ? adapter.listGeneratedImageHomePaths(
+                    codexSettingsScope
+                      ? {
+                          enabledProviderInstanceIds: codexSettingsScope.enabledProviderInstanceIds,
+                        }
+                      : undefined,
+                  )
+                : Effect.succeed<readonly CodexGeneratedImageHomeCandidate[]>([]),
+            ),
+            Effect.catch(() => Effect.succeed<readonly CodexGeneratedImageHomeCandidate[]>([])),
+          )
+        : [];
+      const codexHomePaths: readonly CodexGeneratedImageHomeCandidate[] = [
+        ...(codexSettingsScope?.configuredHomePaths ?? []),
+        ...liveCodexHomePaths,
+      ];
+
+      previewFile = yield* Effect.promise(() =>
+        resolveAllowedLocalPreviewFile({
+          requestedPath,
+          cwd,
+          codexHomePaths,
+          scratchWorkspacesRoot,
+          allowAbsoluteLocalPreviewFile: true,
+          previewGrant,
+          allowAnyExtension: isDownload,
+          threadId,
+        }).catch(() => null),
+      );
+    }
     if (!previewFile) {
       return HttpServerResponse.text("Not Found", {
         status: 404,
