@@ -11,6 +11,7 @@ import { libraryItem, pageItem, type SpaceItem } from "../spaceItems";
 import {
   buildGalleryTree,
   collectionItems,
+  fileIntoSpaces,
   filterSearchResult,
   fitCanvas,
   folderSummary,
@@ -198,5 +199,62 @@ describe("layout", () => {
     expect(
       fitCanvas({ x: 0, y: 0, width: 100, height: 100 }, { width: 1000, height: 600 }),
     ).toEqual({ scale: 1, x: 450, y: 250 });
+  });
+});
+
+describe("folderAssignments overrides", () => {
+  it("files loose items without DB folder columns into assigned folders and spaces", () => {
+    const space = {
+      id: "space-brand" as never,
+      scopeSpaceId: null,
+      rootPageId: "root-brand" as never,
+      title: "品牌方向",
+      revision: 1,
+      trashedAt: null,
+      createdAt: "2026-11-20T00:00:00.000Z",
+      updatedAt: "2026-11-20T00:00:00.000Z",
+    };
+    const looseOutput = {
+      key: "output:out-1",
+      kind: "file" as const,
+      title: "report.html",
+      spaceId: null,
+      pinned: false,
+      trashedAt: null,
+      createdAt: "2026-11-21T00:00:00.000Z",
+      updatedAt: "2026-11-21T00:00:00.000Z",
+      sourceThreadId: "thread-1",
+      source: {
+        type: "output" as const,
+        output: {
+          id: "out-1",
+          kind: "file" as const,
+          title: "report.html",
+          path: "report.html",
+          workspaceRoot: "D:/repo",
+          threadId: "thread-1" as never,
+          threadTitle: "工作对话",
+          updatedAt: "2026-11-21T00:00:00.000Z",
+          trashedAt: null,
+        },
+      },
+    };
+    const assignments = { "output:out-1": "space:space-brand" };
+    const filed = fileIntoSpaces({
+      items: [looseOutput],
+      spaces: [space],
+      libraryFolders: [],
+      folderAssignments: assignments,
+    });
+    expect(filed[0]?.spaceId).toBe("space-brand");
+
+    const tree = buildGalleryTree({
+      items: filed,
+      spaces: [space],
+      libraryFolders: [],
+      folderAssignments: assignments,
+    });
+    expect(tree.loose).toHaveLength(0);
+    expect(tree.folders[0]?.items.map((item) => item.key)).toEqual(["output:out-1"]);
   });
 });

@@ -7,9 +7,17 @@
 
 import { parseSheetWorkbook, readSheetRange } from "@moss/shared/spaceItems/sheetWorkbook";
 import { useQuery } from "@tanstack/react-query";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import {
+  type DragEvent,
+  type KeyboardEvent,
+  type MouseEvent,
+  type ReactNode,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 
-import { EllipsisIcon, PinFilledIcon } from "~/lib/icons";
+import { CheckIcon, EllipsisIcon, PinFilledIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
 import { resolveWsHttpUrl } from "~/lib/wsHttpUrl";
 import { ensureNativeApi } from "~/nativeApi";
@@ -29,8 +37,9 @@ import {
   useNearViewport,
 } from "./gallery/GalleryCards";
 import { useGalleryImageSource, useOptionalGallery } from "./gallery/GalleryContext";
-import { galleryClassOf, noteBlocks } from "./gallery/galleryModel";
-import { Menu, MenuItem, MenuSeparator, MenuTrigger } from "../ui/menu";
+import { galleryClassOf, noteBlocks, type GalleryFolder } from "./gallery/galleryModel";
+import { Menu, MenuGroup, MenuGroupLabel, MenuItem, MenuSeparator, MenuTrigger } from "../ui/menu";
+import { Button } from "../ui/button";
 import {
   formatRelativeTime,
   markSpaceDashboardItem,
@@ -49,6 +58,10 @@ export interface SpaceItemActions {
   /** 重命名: the card's title turns into a field in place; called with the new name. */
   onRename?: ((item: SpaceItem, title: string) => void) | undefined;
   onTrash?: ((item: SpaceItem) => void) | undefined;
+  folders?: readonly GalleryFolder[] | undefined;
+  onMoveToFolder?:
+    | ((items: readonly SpaceItem[], target: GalleryFolder | null) => void)
+    | undefined;
 }
 
 /** Items whose name can be changed here: pages of every kind and uploaded files. */
@@ -65,6 +78,13 @@ export function SpaceItemCard(
     now: number;
     /** Outlined: the item the person just came back from. */
     marked?: boolean | undefined;
+    selected?: boolean | undefined;
+    selectionActive?: boolean | undefined;
+    onSelect?: ((item: SpaceItem, event: MouseEvent<HTMLElement>) => void) | undefined;
+    onToggleSelect?: ((item: SpaceItem) => void) | undefined;
+    onDragStartItem?: ((item: SpaceItem, event: DragEvent<HTMLElement>) => void) | undefined;
+    onDragEndItem?: (() => void) | undefined;
+    isDragging?: boolean | undefined;
   },
 ) {
   const { item } = props;
@@ -74,6 +94,7 @@ export function SpaceItemCard(
   const time = formatRelativeTime(item.updatedAt, props.now);
   const [renaming, setRenaming] = useState(false);
   const actions = <SpaceItemMenu {...props} onStartRename={() => setRenaming(true)} />;
+  const highlighted = Boolean(props.marked || props.selected);
   const renameField = renaming ? (
     <SpaceInlineRename
       value={spaceItemDisplayTitle(item)}
@@ -96,12 +117,76 @@ export function SpaceItemCard(
   const nearViewport = useNearViewport(imageCardRef, wantsGridImage);
   const imageSource = useGalleryImageSource(item, { enabled: wantsGridImage && nearViewport });
 
+  const handlePrimaryClick = (event: MouseEvent<HTMLElement>) => {
+    if (props.onSelect) {
+      event.stopPropagation();
+      props.onSelect(item, event);
+      return;
+    }
+    props.onOpen(item);
+  };
+
+  const handlePrimaryDoubleClick = (event: MouseEvent<HTMLElement>) => {
+    event.stopPropagation();
+    props.onOpen(item);
+  };
+
+  const handlePrimaryKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+    if (event.key === "Enter" && !renaming) {
+      event.preventDefault();
+      props.onOpen(item);
+    }
+  };
+
+  const dragProps =
+    !renaming && props.onDragStartItem
+      ? {
+          draggable: true,
+          onDragStart: (event: DragEvent<HTMLElement>) => props.onDragStartItem?.(item, event),
+          onDragEnd: () => props.onDragEndItem?.(),
+        }
+      : {};
+
+  // Positioned via CSS `top-2 left-2` and placed AFTER the card button in DOM order so
+  // `[data-space-item] button` first match always refers to the card button itself.
+  const selectionToggle = props.onToggleSelect ? (
+    <Button
+      type="button"
+      size="icon-xs"
+      variant="ghost"
+      data-space-select-toggle
+      aria-label={`选择 ${spaceItemDisplayTitle(item)}`}
+      aria-pressed={props.selected ?? false}
+      className={cn(
+        "absolute top-2 left-2 z-20 flex size-5 rounded-full border p-0 transition-all duration-150",
+        props.selected
+          ? "border-info bg-info text-white opacity-100 shadow-xs hover:bg-info hover:text-white"
+          : props.selectionActive
+            ? "border-foreground/30 bg-card/90 text-transparent opacity-90 shadow-xs backdrop-blur-sm hover:border-info hover:bg-card/95"
+            : "border-foreground/25 bg-card/85 text-transparent opacity-0 shadow-xs backdrop-blur-sm group-hover/space-item:opacity-100 group-focus-within/space-item:opacity-100 hover:border-info hover:bg-card/95",
+      )}
+      onClick={(event) => {
+        event.stopPropagation();
+        props.onToggleSelect?.(item);
+      }}
+      onDoubleClick={(event) => event.stopPropagation()}
+    >
+      <CheckIcon aria-hidden className="size-3" />
+    </Button>
+  ) : null;
+
   if (props.view === "list") {
     return (
       <div
         role="row"
-        className="group/space-item flex h-10 items-center gap-3 rounded-row px-2 hover:bg-accent"
+        className={cn(
+          "group/space-item flex h-10 items-center gap-3 rounded-row px-2 transition-colors hover:bg-accent",
+          props.selected && "bg-info/10 ring-1 ring-inset ring-info/45 hover:bg-info/12",
+          props.isDragging && "opacity-50",
+        )}
         data-space-item={item.key}
+        data-selected={props.selected ? "" : undefined}
+        {...dragProps}
       >
         {renameField ? (
           <span role="gridcell" className="flex min-w-0 flex-1 items-center gap-2.5">
@@ -112,8 +197,11 @@ export function SpaceItemCard(
           <button
             type="button"
             role="gridcell"
+            aria-selected={props.selected || undefined}
             className="flex min-w-0 flex-1 items-center gap-2.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            onClick={() => props.onOpen(item)}
+            onClick={handlePrimaryClick}
+            onDoubleClick={handlePrimaryDoubleClick}
+            onKeyDown={handlePrimaryKeyDown}
           >
             <Icon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
             <span className="min-w-0 flex-1 truncate text-ui">{spaceItemDisplayTitle(item)}</span>
@@ -125,6 +213,30 @@ export function SpaceItemCard(
             ) : null}
           </button>
         )}
+        {props.onToggleSelect ? (
+          <Button
+            type="button"
+            size="icon-xs"
+            variant="ghost"
+            data-space-select-toggle
+            aria-label={`选择 ${spaceItemDisplayTitle(item)}`}
+            aria-pressed={props.selected ?? false}
+            className={cn(
+              "flex size-4 shrink-0 rounded-full border p-0 transition-all",
+              props.selected
+                ? "border-info bg-info text-white opacity-100 hover:bg-info hover:text-white"
+                : props.selectionActive
+                  ? "border-foreground/30 text-transparent opacity-85 hover:border-info"
+                  : "border-foreground/25 text-transparent opacity-0 group-hover/space-item:opacity-100 group-focus-within/space-item:opacity-100 hover:border-info",
+            )}
+            onClick={(event) => {
+              event.stopPropagation();
+              props.onToggleSelect?.(item);
+            }}
+          >
+            <CheckIcon aria-hidden className="size-2.5" />
+          </Button>
+        ) : null}
         <span
           role="gridcell"
           className="w-24 shrink-0 truncate text-ui-sm text-muted-foreground max-sm:hidden"
@@ -153,16 +265,36 @@ export function SpaceItemCard(
     return (
       <div
         ref={galleryKind === "image" ? imageCardRef : undefined}
-        className="group/space-item relative"
+        className={cn(
+          "group/space-item relative transition-[opacity,transform] duration-150",
+          props.isDragging && "scale-[0.98] opacity-50",
+        )}
         data-space-item={item.key}
+        data-selected={props.selected ? "" : undefined}
+        {...dragProps}
       >
         {galleryKind === "note" ? (
-          <NoteCard item={item} marked={props.marked === true} onOpen={props.onOpen} />
+          <NoteCard
+            item={item}
+            marked={highlighted}
+            selected={props.selected === true}
+            onClick={handlePrimaryClick}
+            onDoubleClick={handlePrimaryDoubleClick}
+            onKeyDown={handlePrimaryKeyDown}
+          />
         ) : (
           <SpaceCardButton
-            className={cn("border-transparent bg-muted/40", props.marked && CARD_MARKED_CLASS_NAME)}
+            className={cn(
+              "border-transparent bg-muted/40",
+              highlighted
+                ? CARD_MARKED_CLASS_NAME
+                : "ring-1 ring-inset ring-foreground/[0.06] hover:ring-foreground/15",
+            )}
             aria-label={`图片 ${spaceItemDisplayTitle(item)}`}
-            onClick={() => props.onOpen(item)}
+            aria-selected={props.selected || undefined}
+            onClick={handlePrimaryClick}
+            onDoubleClick={handlePrimaryDoubleClick}
+            onKeyDown={handlePrimaryKeyDown}
           >
             <span data-space-card-preview="image" className="block">
               <GalleryPicture
@@ -177,7 +309,8 @@ export function SpaceItemCard(
             </span>
           </SpaceCardButton>
         )}
-        <span className="absolute top-2 right-2 rounded-control bg-card/90 backdrop-blur-sm opacity-0 group-hover/space-item:opacity-100 group-focus-within/space-item:opacity-100 has-[[data-popup-open]]:opacity-100">
+        {selectionToggle}
+        <span className="absolute top-2 right-2 z-20 rounded-control bg-card/90 backdrop-blur-sm opacity-0 group-hover/space-item:opacity-100 group-focus-within/space-item:opacity-100 has-[[data-popup-open]]:opacity-100">
           {actions}
         </span>
       </div>
@@ -187,10 +320,13 @@ export function SpaceItemCard(
   return (
     <div
       className={cn(
-        "group/space-item relative flex flex-col overflow-hidden rounded-panel border border-border/80 bg-card shadow-xs transition-[box-shadow,border-color] hover:border-border hover:shadow-md",
-        props.marked && CARD_MARKED_CLASS_NAME,
+        "group/space-item relative flex flex-col overflow-hidden rounded-panel border border-border/80 bg-card shadow-xs transition-[box-shadow,border-color,opacity,transform] hover:border-border hover:shadow-md",
+        highlighted && CARD_MARKED_CLASS_NAME,
+        props.isDragging && "scale-[0.98] opacity-50",
       )}
       data-space-item={item.key}
+      data-selected={props.selected ? "" : undefined}
+      {...dragProps}
     >
       {renameField ? (
         <div className="flex w-full flex-col overflow-hidden rounded-panel">
@@ -203,8 +339,11 @@ export function SpaceItemCard(
       ) : (
         <button
           type="button"
-          className="flex w-full flex-col overflow-hidden rounded-panel text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          onClick={() => props.onOpen(item)}
+          aria-selected={props.selected || undefined}
+          className="flex w-full flex-col overflow-hidden rounded-panel bg-card text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={handlePrimaryClick}
+          onDoubleClick={handlePrimaryDoubleClick}
+          onKeyDown={handlePrimaryKeyDown}
         >
           <SpaceItemPreview item={item} meta={meta} isDashboard={isDashboard} />
           <span className="flex min-h-15 min-w-0 flex-col justify-center gap-1 px-3 py-2.5">
@@ -224,7 +363,8 @@ export function SpaceItemCard(
           </span>
         </button>
       )}
-      <span className="absolute top-2 right-2 rounded-control bg-card/90 backdrop-blur-sm opacity-0 group-hover/space-item:opacity-100 group-focus-within/space-item:opacity-100 has-[[data-popup-open]]:opacity-100">
+      {selectionToggle}
+      <span className="absolute top-2 right-2 z-20 rounded-control bg-card/90 backdrop-blur-sm opacity-0 group-hover/space-item:opacity-100 group-focus-within/space-item:opacity-100 has-[[data-popup-open]]:opacity-100">
         {actions}
       </span>
     </div>
@@ -232,15 +372,25 @@ export function SpaceItemCard(
 }
 
 /** A note as a card: its title, then its own text (headings, tasks, lists, pictures). */
-function NoteCard(props: { item: SpaceItem; marked: boolean; onOpen: (item: SpaceItem) => void }) {
+function NoteCard(props: {
+  item: SpaceItem;
+  marked: boolean;
+  selected?: boolean | undefined;
+  onClick: (event: MouseEvent<HTMLElement>) => void;
+  onDoubleClick: (event: MouseEvent<HTMLElement>) => void;
+  onKeyDown: (event: KeyboardEvent<HTMLElement>) => void;
+}) {
   const markdown = useNoteMarkdown(props.item);
   const blocks = markdown === null ? null : noteBlocks(markdown, 12);
   return (
     <SpaceCardButton
       className={cn("max-h-96 gap-2 px-3.5 pt-3 pb-3", props.marked && CARD_MARKED_CLASS_NAME)}
-      onClick={() => props.onOpen(props.item)}
+      aria-selected={props.selected || undefined}
+      onClick={props.onClick}
+      onDoubleClick={props.onDoubleClick}
+      onKeyDown={props.onKeyDown}
     >
-      <span className="flex min-w-0 items-center gap-1.5 pe-7">
+      <span className="flex min-w-0 items-center gap-1.5 ps-5 pe-7 group-hover/space-item:ps-5">
         <span className="min-w-0 flex-1 truncate text-ui font-medium">
           {spaceItemDisplayTitle(props.item)}
         </span>
@@ -620,6 +770,12 @@ function SpaceItemMenu(props: SpaceItemActions & { item: SpaceItem; onStartRenam
   const { item } = props;
   const canPin =
     props.onTogglePin && (item.source.type === "page" || item.source.type === "library");
+  const currentFolderKey =
+    props.folders?.find((folder) => folder.items.some((entry) => entry.key === item.key))?.key ??
+    null;
+  const canMove =
+    Boolean(props.onMoveToFolder) &&
+    ((props.folders?.length ?? 0) > 0 || currentFolderKey !== null);
   return (
     <Menu>
       <SidebarIconButton
@@ -628,7 +784,7 @@ function SpaceItemMenu(props: SpaceItemActions & { item: SpaceItem; onStartRenam
         label={`${spaceItemDisplayTitle(item)} 的操作`}
         size="lg"
       />
-      <ComposerPickerMenuPopup align="end" className="w-48 min-w-48">
+      <ComposerPickerMenuPopup align="end" className="w-52 min-w-52">
         <MenuItem onClick={() => props.onOpen(item)}>打开</MenuItem>
         {item.sourceThreadId && props.onContinueInChat ? (
           <MenuItem onClick={() => props.onContinueInChat?.(item)}>在对话中继续</MenuItem>
@@ -643,6 +799,32 @@ function SpaceItemMenu(props: SpaceItemActions & { item: SpaceItem; onStartRenam
           <MenuItem onClick={() => props.onTogglePin?.(item)}>
             {item.pinned ? "取消收藏" : "收藏"}
           </MenuItem>
+        ) : null}
+        {canMove ? (
+          <>
+            <MenuSeparator />
+            <MenuGroup>
+              <MenuGroupLabel>移入资料空间</MenuGroupLabel>
+              {props.folders?.map((folder) => {
+                const inside = folder.key === currentFolderKey;
+                return (
+                  <MenuItem
+                    key={folder.key}
+                    disabled={inside}
+                    onClick={() => props.onMoveToFolder?.([item], folder)}
+                  >
+                    <span className="flex-1 truncate">{folder.title}</span>
+                    {inside ? <CheckIcon aria-hidden className="size-3.5" /> : null}
+                  </MenuItem>
+                );
+              })}
+              {currentFolderKey !== null ? (
+                <MenuItem onClick={() => props.onMoveToFolder?.([item], null)}>
+                  移出到未归入文件夹
+                </MenuItem>
+              ) : null}
+            </MenuGroup>
+          </>
         ) : null}
         {props.onTrash ? (
           <>

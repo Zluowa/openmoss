@@ -7,6 +7,9 @@
 import {
   type ComponentProps,
   type CSSProperties,
+  type DragEvent,
+  type KeyboardEvent,
+  type MouseEvent,
   type ReactNode,
   type RefObject,
   useEffect,
@@ -18,32 +21,44 @@ import { CheckIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
 
 import { Button } from "../../ui/button";
+import { hasSpaceItemDrag, readDraggedSpaceKeys } from "../spaceDragState";
 import { spaceItemDisplayTitle, type SpaceItem } from "../spaceItems";
 import { spaceItemMeta } from "../spaceKinds";
 import { galleryNoteImageSrc, useGalleryAspects, useGalleryImageSrc } from "./GalleryContext";
 import { folderSummary, galleryClassOf, type GalleryFolder, type NoteBlock } from "./galleryModel";
 
 const CARD_CLASS_NAME =
-  "group/gallery-card relative flex h-auto min-h-0 w-full flex-col items-stretch justify-start gap-0 overflow-hidden whitespace-normal rounded-card border border-border/80 bg-card p-0 text-left font-normal text-foreground shadow-none outline-none transition-[box-shadow,border-color] hover:border-border hover:bg-card focus-visible:ring-2 focus-visible:ring-info focus-visible:ring-offset-0 data-pressed:bg-card";
+  "group/gallery-card relative flex h-auto min-h-0 w-full flex-col items-stretch justify-start gap-0 overflow-hidden whitespace-normal rounded-card border border-border/80 bg-card p-0 text-left font-normal text-foreground shadow-none outline-none transition-[box-shadow,border-color,transform] hover:border-border hover:bg-card focus-visible:ring-2 focus-visible:ring-info focus-visible:ring-offset-0 data-pressed:bg-card";
 
 /** A card is one Button: the shared focus and press treatment, drawn as a card. */
 export function SpaceCardButton(props: Omit<ComponentProps<typeof Button>, "variant" | "size">) {
   return <Button {...props} variant="ghost" className={cn(CARD_CLASS_NAME, props.className)} />;
 }
 
-/** The card a person just came back from keeps a blue outline, so they see where they were. */
+/** The card a person just came back from or selected keeps a crisp blue outline. */
 export const CARD_MARKED_CLASS_NAME = "ring-2 ring-info";
 
 // ---------------------------------------------------------------------------------------------
 // Folder
 
-/** A folder: what is inside peeks out of a pocket, with 「2 篇笔记 · 5 张图片」 under its name. */
+/**
+ * A crafted folder card: unified smooth tab-and-body SVG silhouette (zero jagged seams),
+ * gently fanned peek sheets, frosted front pocket, single-click selection, double-click open,
+ * and drop-target highlighting for filing files directly into the folder.
+ */
 export function SpaceFolderCard(props: {
   folder: GalleryFolder;
   marked: boolean;
+  selected?: boolean | undefined;
+  onSelect?: ((folder: GalleryFolder, event: MouseEvent<HTMLButtonElement>) => void) | undefined;
   onOpen: (folder: GalleryFolder) => void;
+  onDropKeys?: ((folder: GalleryFolder, keys: readonly string[]) => void) | undefined;
 }) {
   const { folder } = props;
+  const [dropActive, setDropActive] = useState(false);
+  const [dropCount, setDropCount] = useState(0);
+  const dragDepthRef = useRef(0);
+
   // Pictures show a folder best; then a note, then whatever else it holds.
   const peeks = [
     ...folder.items.filter((item) => galleryClassOf(item) === "image").slice(0, 2),
@@ -51,40 +66,142 @@ export function SpaceFolderCard(props: {
     ...folder.items.filter((item) => galleryClassOf(item) === "image").slice(2),
     ...folder.items.filter((item) => galleryClassOf(item) === "other"),
   ].slice(0, 3);
+
+  const highlighted = Boolean(props.selected || props.marked || dropActive);
+
+  const handleDragEnter = (event: DragEvent<HTMLButtonElement>) => {
+    if (!props.onDropKeys || !hasSpaceItemDrag(event.dataTransfer)) return;
+    event.preventDefault();
+    dragDepthRef.current += 1;
+    setDropActive(true);
+    setDropCount(readDraggedSpaceKeys(event.dataTransfer).length);
+  };
+
+  const handleDragOver = (event: DragEvent<HTMLButtonElement>) => {
+    if (!props.onDropKeys || !hasSpaceItemDrag(event.dataTransfer)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    if (!dropActive) setDropActive(true);
+  };
+
+  const handleDragLeave = () => {
+    if (!props.onDropKeys) return;
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+    if (dragDepthRef.current === 0) {
+      setDropActive(false);
+      setDropCount(0);
+    }
+  };
+
+  const handleDrop = (event: DragEvent<HTMLButtonElement>) => {
+    dragDepthRef.current = 0;
+    setDropActive(false);
+    setDropCount(0);
+    if (!props.onDropKeys) return;
+    const keys = readDraggedSpaceKeys(event.dataTransfer);
+    if (keys.length === 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    props.onDropKeys(folder, keys);
+  };
+
+  const handleClick = (event: MouseEvent<HTMLButtonElement>) => {
+    if (props.onSelect) {
+      event.stopPropagation();
+      props.onSelect(folder, event);
+      return;
+    }
+    props.onOpen(folder);
+  };
+
+  const handleDoubleClick = (event: MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    props.onOpen(folder);
+  };
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      props.onOpen(folder);
+    }
+  };
+
   return (
     <SpaceCardButton
-      className="overflow-visible border-transparent bg-transparent pt-2.5 hover:border-transparent hover:bg-transparent data-pressed:bg-transparent"
+      className={cn(
+        "relative overflow-visible rounded-card border-0 bg-transparent p-0 transition-transform duration-200 hover:border-transparent hover:bg-transparent focus-visible:ring-0 data-pressed:bg-transparent",
+        dropActive && "-translate-y-0.5 scale-[1.01]",
+      )}
       data-gallery-card="folder"
       data-gallery-key={folder.key}
+      data-selected={props.selected ? "" : undefined}
+      data-drop-active={dropActive ? "" : undefined}
       aria-label={`文件夹 ${folder.title}，${folderSummary(folder)}`}
-      onClick={() => props.onOpen(folder)}
+      aria-selected={props.selected || undefined}
+      onClick={handleClick}
+      onDoubleClick={handleDoubleClick}
+      onKeyDown={handleKeyDown}
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
     >
-      {/* The folder's tab. */}
-      <span
-        aria-hidden
-        className={cn(
-          "absolute top-0 left-0 h-5 w-[38%] rounded-t-card border border-b-0 border-border/80 bg-[var(--color-background-elevated-secondary)]",
-          props.marked && "border-info",
-        )}
-      />
       <span
         className={cn(
-          "relative flex w-full flex-col overflow-hidden rounded-card rounded-tl-none border border-border/80 bg-[var(--color-background-elevated-secondary)] transition-[border-color] group-hover/gallery-card:border-border",
-          props.marked && CARD_MARKED_CLASS_NAME,
+          "relative flex h-[196px] w-full flex-col justify-end overflow-hidden rounded-b-card pt-6 transition-[filter] duration-200",
+          highlighted ? "drop-shadow-md" : "drop-shadow-xs group-hover/gallery-card:drop-shadow-sm",
         )}
       >
-        <span aria-hidden className="relative block h-36 w-full overflow-hidden">
+        {/* Unified tab + folder shell path so border, tab shoulder, and corners stay razor smooth. */}
+        <svg
+          viewBox="0 0 320 196"
+          preserveAspectRatio="none"
+          aria-hidden
+          className="pointer-events-none absolute inset-0 h-full w-full"
+        >
+          <path
+            d="M 14 1 L 106 1 C 116 1 122 6 128 14 C 133 20 138 23 147 23 L 306 23 A 13 13 0 0 1 319 36 L 319 182 A 13 13 0 0 1 306 195 L 14 195 A 13 13 0 0 1 1 182 L 1 14 A 13 13 0 0 1 14 1 Z"
+            fill="var(--color-background-elevated-secondary)"
+            stroke={highlighted ? "var(--color-info)" : "var(--border)"}
+            strokeWidth={highlighted ? 2 : 1}
+            vectorEffect="non-scaling-stroke"
+            className="transition-[stroke,stroke-width] duration-150"
+          />
+        </svg>
+
+        {dropActive ? (
+          <span
+            aria-hidden
+            className="pointer-events-none absolute top-7 right-3 z-20 rounded-full bg-info px-2.5 py-0.5 text-ui-xs font-medium text-white shadow-sm"
+          >
+            {dropCount > 1 ? `松手移入 ${dropCount} 项` : "松手移入"}
+          </span>
+        ) : null}
+
+        {/* Items fanning softly out of the folder pocket. */}
+        <span aria-hidden className="relative z-0 mx-3.5 block flex-1 overflow-hidden">
           {peeks.length === 0 ? null : (
-            <span className="absolute inset-x-3 top-3 flex items-start justify-center gap-2">
+            <span
+              className={cn(
+                "flex items-start justify-center gap-2 pt-2 transition-transform duration-300 ease-out group-hover/gallery-card:-translate-y-1.5",
+                dropActive && "-translate-y-2.5 scale-[1.02]",
+              )}
+            >
               {peeks.map((item, index) => (
                 <FolderPeek key={item.key} item={item} index={index} total={peeks.length} />
               ))}
             </span>
           )}
         </span>
-        {/* The pocket: what is inside shows above it, softened below its edge. */}
-        <span className="relative -mt-10 flex flex-col gap-0.5 border-t border-border/60 bg-card/80 px-3 pt-3 pb-3 backdrop-blur-md">
-          <span className="truncate text-ui font-medium">{folder.title}</span>
+
+        {/* Frosted front pocket mask cleanly clipped inside the outer stroke corners. */}
+        <span
+          className={cn(
+            "relative z-10 mx-[1.5px] mb-[1.5px] -mt-12 flex flex-col gap-0.5 rounded-b-card border-t border-border/55 bg-card/88 px-3.5 pt-3 pb-3 shadow-xs backdrop-blur-md transition-transform duration-200",
+            dropActive && "translate-y-0.5 bg-card/95",
+          )}
+        >
+          <span className="truncate text-ui font-medium text-foreground">{folder.title}</span>
           <span className="truncate text-ui-xs text-muted-foreground">{folderSummary(folder)}</span>
         </span>
       </span>
@@ -285,9 +402,11 @@ export function GalleryPicture(props: {
   const aspect = useGalleryAspects((state) => state.aspects[props.item.key]);
   const setAspect = useGalleryAspects((state) => state.setAspect);
   const [failed, setFailed] = useState(false);
+  const [loaded, setLoaded] = useState(false);
   const retriedSrcRef = useRef<string | null>(null);
   useEffect(() => {
     setFailed(false);
+    setLoaded(false);
   }, [props.src]);
   if (!props.src || failed) {
     const Icon = spaceItemMeta(props.item).icon;
@@ -316,8 +435,14 @@ export function GalleryPicture(props: {
       decoding="async"
       draggable={false}
       style={props.fill ? undefined : { aspectRatio: String(aspect ?? 4 / 3) }}
-      className={cn("block object-cover", props.fill && "h-full w-full", props.className)}
+      className={cn(
+        "block object-cover transition-opacity duration-200",
+        loaded ? "opacity-100" : "opacity-0",
+        props.fill && "h-full w-full",
+        props.className,
+      )}
       onLoad={(event) => {
+        setLoaded(true);
         const image = event.currentTarget;
         if (image.naturalHeight > 0)
           setAspect(props.item.key, image.naturalWidth / image.naturalHeight);

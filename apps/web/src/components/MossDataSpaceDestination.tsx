@@ -27,7 +27,7 @@ import { isMossCanvasAccountSignedOut, MOSS_CANVAS_SIGN_IN_MESSAGE } from "~/lib
 import { useMossImagesAccountBoundary } from "~/lib/mossImagesAccountBoundary";
 import { pagesQueryKeys } from "~/lib/pagesReactQuery";
 import { isPageMutationRejected, PageMutationIntent } from "~/lib/pageMutationIntent";
-import { listSpacePageApps, promoteHtmlToPageApp } from "~/lib/spacePageApps";
+import { listSpacePageApps, moveSpacePageApp, promoteHtmlToPageApp } from "~/lib/spacePageApps";
 import { clearSpacePageHash, readSpacePageHash, SPACE_PAGE_HASH_PREFIX } from "~/lib/spacePageLink";
 
 import { MossLibraryDestination } from "./MossLibraryDestination";
@@ -51,7 +51,8 @@ import {
 import { AccountPageRecovery } from "./space/AccountPageRecovery";
 import { GalleryProvider, type GalleryPlace } from "./space/gallery/GalleryContext";
 import { useGalleryLocalStore } from "./space/gallery/galleryLocalStore";
-import { fileIntoSpaces, type GalleryFolder } from "./space/gallery/galleryModel";
+import { buildGalleryTree, fileIntoSpaces, type GalleryFolder } from "./space/gallery/galleryModel";
+import { spaceItemDisplayTitle } from "./space/spaceItems";
 import { GalleryImageViewer } from "./space/gallery/GalleryImageViewer";
 import {
   WELCOME_FOLDER_TITLE,
@@ -171,6 +172,7 @@ function DataSpaceWorkspace({
   const [searchOpen, setSearchOpen] = useState(false);
   const collections = useGalleryLocalStore((state) => state.collections);
   const removeCollection = useGalleryLocalStore((state) => state.removeCollection);
+  const folderAssignments = useGalleryLocalStore((state) => state.folderAssignments);
   const openedCollection =
     section.type === "collection"
       ? (collections.find((entry) => entry.id === section.id) ?? null)
@@ -308,8 +310,17 @@ function DataSpaceWorkspace({
         }),
         spaces,
         libraryFolders,
+        folderAssignments,
       }),
-    [allPages, appsQuery.data, outputsQuery.data, libraryQuery.data, spaces, libraryFolders],
+    [
+      allPages,
+      appsQuery.data,
+      outputsQuery.data,
+      libraryQuery.data,
+      spaces,
+      libraryFolders,
+      folderAssignments,
+    ],
   );
   const refresh = useCallback(
     () => client.invalidateQueries({ queryKey: pagesQueryKeys.scope(account, scopeSpaceId) }),
@@ -575,6 +586,237 @@ function DataSpaceWorkspace({
         actionProps: { children: "撤销", onClick: () => void restoreItem(trashed) },
       });
     });
+  const trashItems = (targets: readonly SpaceItem[]) => {
+    if (targets.length === 0) return;
+    if (targets.length === 1) {
+      void trashItem(targets[0]!);
+      return;
+    }
+    void run("移到回收站", async () => {
+      const api = ensureNativeApi();
+      const trashed: SpaceItem[] = [];
+      const libraryIds: string[] = [];
+      for (const item of targets) {
+        if (item.source.type === "page") {
+          const page = item.source.page;
+          const result = await pageMutation(page, {
+            op: isSpaceRoot(page) ? "trash-space" : "trash",
+          });
+          trashed.push({ ...item, source: { ...item.source, page: result.page } });
+        } else if (item.source.type === "output") {
+          await api.pages.outputState({
+            scopeSpaceId,
+            outputId: item.source.output.id,
+            action: "trash",
+          });
+          trashed.push(item);
+        } else if (item.source.type === "library") {
+          libraryIds.push(item.source.item.id);
+          trashed.push(item);
+        }
+      }
+      if (libraryIds.length) await api.library.trash({ ids: libraryIds });
+      if (open?.type === "item" && targets.some((entry) => entry.key === open.key)) setOpen(null);
+      toastManager.add({
+        type: "success",
+        title: `已将 ${trashed.length} 项移到回收站`,
+        actionProps: {
+          children: "撤销",
+          onClick: () =>
+            void run("恢复", async () => {
+              const libRestore: string[] = [];
+              for (const item of trashed) {
+                if (item.source.type === "page") {
+                  await pageMutation(item.source.page, {
+                    op: isSpaceRoot(item.source.page) ? "restore-space" : "restore",
+                  });
+                } else if (item.source.type === "output") {
+                  await api.pages.outputState({
+                    scopeSpaceId,
+                    outputId: item.source.output.id,
+                    action: "restore",
+                  });
+                } else if (item.source.type === "library") {
+                  libRestore.push(item.source.item.id);
+                }
+              }
+              if (libRestore.length) await api.library.restore({ ids: libRestore });
+            }),
+        },
+      });
+    });
+  };
+  const moveItemsToFolder = (targets: readonly SpaceItem[], destination: GalleryFolder | null) => {
+    if (targets.length === 0) return;
+    void run(destination ? "移入文件夹" : "移出文件夹", async () => {
+      const api = ensureNativeApi();
+      let targetSpaceId = (destination?.spaceId as PageSpace["id"] | null | undefined) ?? null;
+      let targetRootPageId = targetSpaceId
+        ? (spaces.find((entry) => entry.id === targetSpaceId)?.rootPageId ?? null)
+        : null;
+      let targetLibraryFolderId = destination?.libraryFolderIds[0] ?? null;
+
+      const needsSpace = targets.some(
+        (item) => item.source.type === "page" || item.source.type === "app",
+      );
+      const needsLibraryFolder = targets.some((item) => item.source.type === "library");
+
+      if (destination && needsSpace && !targetSpaceId) {
+        const created = await api.pages.mutate({
+          op: "create-space",
+          requestId: crypto.randomUUID(),
+          scopeSpaceId,
+          title: destination.title,
+        });
+        targetSpaceId = created.space?.id ?? null;
+        targetRootPageId = created.space?.rootPageId ?? null;
+      }
+      if (destination && needsLibraryFolder && !targetLibraryFolderId) {
+        const createdFolder = await api.library.createFolder({
+          id: crypto.randomUUID(),
+          title: destination.title,
+        });
+        targetLibraryFolderId = createdFolder.folder.id;
+      }
+
+      const movedPages: Array<{
+        page: Page;
+        prevSpaceId: Page["spaceId"];
+        prevParentPageId: Page["parentPageId"];
+      }> = [];
+      const libraryMoves: Array<{ id: string; prevFolderId: string | null }> = [];
+      const movedApps: Array<{ id: string; revision: number; prevSpaceId: Page["spaceId"] }> = [];
+      const outputPrev = new Map<string, string | null>();
+      const currentAssignments = useGalleryLocalStore.getState().folderAssignments;
+
+      for (const item of targets) {
+        if (item.source.type === "page") {
+          const page = item.source.page;
+          if (isSpaceRoot(page)) continue;
+          const nextSpaceId = destination ? targetSpaceId : null;
+          const nextParentId = destination ? targetRootPageId : null;
+          if (page.spaceId === nextSpaceId && page.parentPageId === nextParentId) continue;
+          const res = await pageMutation(page, {
+            op: "move",
+            spaceId: nextSpaceId,
+            parentPageId: nextParentId,
+          });
+          movedPages.push({
+            page: res.page,
+            prevSpaceId: page.spaceId,
+            prevParentPageId: page.parentPageId,
+          });
+        } else if (item.source.type === "library") {
+          const entry = item.source.item;
+          const nextFolderId = destination ? targetLibraryFolderId : null;
+          if (entry.folderId === nextFolderId) continue;
+          libraryMoves.push({ id: entry.id, prevFolderId: entry.folderId });
+        } else if (item.source.type === "app") {
+          const app = item.source.app;
+          const nextSpaceId = destination ? targetSpaceId : null;
+          if (app.spaceId === nextSpaceId) continue;
+          const updatedApp = await moveSpacePageApp({
+            scopeSpaceId,
+            appId: app.id,
+            expectedRevision: app.revision,
+            spaceId: nextSpaceId,
+          });
+          if (updatedApp) {
+            movedApps.push({
+              id: updatedApp.id,
+              revision: updatedApp.revision,
+              prevSpaceId: app.spaceId,
+            });
+          }
+        } else {
+          outputPrev.set(item.key, currentAssignments[item.key] ?? null);
+        }
+      }
+
+      if (libraryMoves.length > 0) {
+        await api.library.move({
+          ids: libraryMoves.map((entry) => entry.id),
+          folderId: destination ? targetLibraryFolderId : null,
+        });
+      }
+      if (outputPrev.size > 0) {
+        const assignKey = destination
+          ? targetSpaceId
+            ? `space:${targetSpaceId}`
+            : destination.key
+          : null;
+        useGalleryLocalStore.getState().assignItemsFolder([...outputPrev.keys()], assignKey);
+      }
+
+      const movedCount =
+        movedPages.length + libraryMoves.length + movedApps.length + outputPrev.size;
+      if (movedCount === 0) return;
+
+      const label =
+        targets.length === 1
+          ? `已将“${spaceItemDisplayTitle(targets[0]!)}”`
+          : `已将 ${movedCount} 项`;
+      const actionTitle = destination
+        ? `${label}移入“${destination.title}”`
+        : `${label}移出到未归入文件夹`;
+
+      toastManager.add({
+        type: "success",
+        title: actionTitle,
+        actionProps: {
+          children: "撤销",
+          onClick: () =>
+            void run("撤销移动", async () => {
+              for (const entry of movedPages) {
+                await pageMutation(entry.page, {
+                  op: "move",
+                  spaceId: entry.prevSpaceId,
+                  parentPageId: entry.prevParentPageId,
+                });
+              }
+              const byPrevFolder = new Map<string | null, string[]>();
+              for (const entry of libraryMoves) {
+                const list = byPrevFolder.get(entry.prevFolderId) ?? [];
+                list.push(entry.id);
+                byPrevFolder.set(entry.prevFolderId, list);
+              }
+              for (const [prevFolderId, ids] of byPrevFolder) {
+                await api.library.move({ ids, folderId: prevFolderId });
+              }
+              for (const entry of movedApps) {
+                await moveSpacePageApp({
+                  scopeSpaceId,
+                  appId: entry.id,
+                  expectedRevision: entry.revision,
+                  spaceId: entry.prevSpaceId,
+                });
+              }
+              for (const [key, prevAssigned] of outputPrev) {
+                useGalleryLocalStore.getState().assignItemFolder(key, prevAssigned);
+              }
+            }),
+        },
+      });
+    });
+  };
+  const dropKeysToFolderKey = (folderKey: string | null, keys: readonly string[]) => {
+    const resolved = keys
+      .map((key) => items.find((item) => item.key === key))
+      .filter((entry): entry is SpaceItem => entry !== undefined && entry.trashedAt === null);
+    if (resolved.length === 0) return;
+    if (folderKey === null) {
+      moveItemsToFolder(resolved, null);
+      return;
+    }
+    const folders = buildGalleryTree({
+      items,
+      spaces,
+      libraryFolders,
+      folderAssignments,
+    }).folders;
+    const match = folders.find((folder) => folder.key === folderKey);
+    if (match) moveItemsToFolder(resolved, match);
+  };
   const restoreItem = (item: SpaceItem) =>
     run("恢复", async () => {
       if (item.source.type === "page") {
@@ -989,6 +1231,11 @@ function DataSpaceWorkspace({
           onLoadWelcome={
             !spacesQuery.isLoading && !hasWelcomeSpace ? () => void loadWelcomeSamples() : undefined
           }
+          onDropToSpace={(spaceId, keys) => dropKeysToFolderKey(`space:${spaceId}`, keys)}
+          onDropToLibraryFolder={(folderId, keys) =>
+            dropKeysToFolderKey(`folder:${folderId}`, keys)
+          }
+          onDropToLoose={(keys) => dropKeysToFolderKey(null, keys)}
         />
       )}
       <div ref={workspaceHostRef} className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
@@ -1185,6 +1432,10 @@ function DataSpaceWorkspace({
                     onTogglePin={(item) => void togglePin(item)}
                     onRename={(item, title) => void renameItem(item, title)}
                     onTrash={(item) => void trashItem(item)}
+                    onTrashMany={(targets) => trashItems(targets)}
+                    onMoveToFolder={(targets, destination) =>
+                      moveItemsToFolder(targets, destination)
+                    }
                   />
                 )}
               </main>

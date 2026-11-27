@@ -595,17 +595,121 @@ async function mount(
     });
   } else {
     Object.assign(fixture.api.pages, {
-      spaces: vi.fn(async () => ({ spaces: data.spaces })),
-      list: vi.fn(async () => ({ pages: data.pages })),
+      spaces: vi.fn(async () => ({ spaces: [...data.spaces] })),
+      list: vi.fn(async () => ({ pages: [...data.pages] })),
       read: vi.fn(async ({ pageId }: { pageId: string }) => {
         const found = data.pages.find((entry) => entry.id === pageId);
         if (!found) throw new Error(`No page ${pageId}`);
         return { page: found, content: data.contents.get(pageId) ?? "" };
       }),
+      mutate: vi.fn(
+        async (input: {
+          op: string;
+          pageId?: PageId;
+          spaceId?: Page["spaceId"];
+          parentPageId?: Page["parentPageId"];
+          title?: string;
+          content?: string;
+          pinned?: boolean;
+        }) => {
+          if (input.op === "create-space") {
+            const rootId = PageId.makeUnsafe(`root-${data.spaces.length + 1}`);
+            const spaceId = `space-${data.spaces.length + 1}` as PageSpace["id"];
+            const space: PageSpace = {
+              id: spaceId,
+              scopeSpaceId: null,
+              rootPageId: rootId,
+              title: input.title ?? "新建空间",
+              revision: 1,
+              trashedAt: null,
+              createdAt: tick(),
+              updatedAt: tick(),
+            };
+            const rootPage: Page = {
+              id: rootId,
+              scopeSpaceId: null,
+              spaceId,
+              parentPageId: null,
+              rootPageId: rootId,
+              kind: "page",
+              title: space.title,
+              revision: 1,
+              pinned: false,
+              trashedAt: null,
+              sourceThreadId: null,
+              assetIds: [],
+              automationIds: [],
+              createdAt: space.createdAt,
+              updatedAt: space.updatedAt,
+            };
+            data.spaces.push(space);
+            data.pages.push(rootPage);
+            data.contents.set(rootId, "");
+            return {
+              page: rootPage,
+              content: "",
+              affectedPageIds: [rootId],
+              space,
+            };
+          }
+          const index = data.pages.findIndex((entry) => entry.id === input.pageId);
+          if (index === -1) throw new Error(`No page ${input.pageId}`);
+          const prev = data.pages[index]!;
+          let next = { ...prev, revision: prev.revision + 1, updatedAt: tick() };
+          if (input.op === "move") {
+            next = {
+              ...next,
+              spaceId: input.spaceId ?? null,
+              parentPageId: input.parentPageId ?? null,
+              rootPageId: input.parentPageId ?? next.id,
+            };
+          } else if (input.op === "pin") {
+            next = { ...next, pinned: Boolean(input.pinned) };
+          } else if (input.op === "trash" || input.op === "trash-space") {
+            next = { ...next, trashedAt: tick() };
+          } else if (input.op === "restore" || input.op === "restore-space") {
+            next = { ...next, trashedAt: null };
+          } else if (input.op === "update") {
+            next = { ...next, title: input.title ?? next.title };
+            if (input.content !== undefined) data.contents.set(next.id, input.content);
+          }
+          data.pages[index] = next;
+          return {
+            page: next,
+            content: data.contents.get(next.id) ?? "",
+            affectedPageIds: [next.id],
+          };
+        },
+      ),
       outputs: vi.fn(async () => ({ outputs: [] })),
     });
     Object.assign(fixture.api.library, {
-      list: vi.fn(async () => ({ items: data.library, folders: data.libraryFolders })),
+      list: vi.fn(async () => ({ items: [...data.library], folders: [...data.libraryFolders] })),
+      createFolder: vi.fn(async ({ id, title }: { id: string; title: string }) => {
+        const folder = { id, title, createdAt: tick(), updatedAt: tick() };
+        data.libraryFolders.push(folder);
+        return { folder };
+      }),
+      move: vi.fn(async ({ ids, folderId }: { ids: string[]; folderId: string | null }) => {
+        for (const [index, entry] of data.library.entries()) {
+          if (ids.includes(entry.id)) {
+            data.library[index] = { ...entry, folderId, updatedAt: tick() };
+          }
+        }
+        return { items: data.library };
+      }),
+      trash: vi.fn(async ({ ids }: { ids: string[] }) => {
+        for (const [index, entry] of data.library.entries()) {
+          if (ids.includes(entry.id)) data.library[index] = { ...entry, trashedAt: tick() };
+        }
+        return { items: data.library };
+      }),
+      restore: vi.fn(async ({ ids }: { ids: string[] }) => {
+        for (const [index, entry] of data.library.entries()) {
+          if (ids.includes(entry.id)) data.library[index] = { ...entry, trashedAt: null };
+        }
+        return { items: data.library };
+      }),
     });
   }
   Object.assign(fixture.api, {
@@ -772,15 +876,15 @@ describe("资料空间", () => {
     await shot("02-sidebar-unfolded");
     await sidebar().getByRole("button", { name: "类型", exact: true }).click();
 
-    // 2. A 资料空间: its pages and the pictures of the same-named folder, side by side; the
-    //    sidebar opens it and unfolds pages and pictures in one click.
-    await page.getByRole("button", { name: /^文件夹 品牌方向/u }).click();
+    // 2. A 资料空间: its pages and the pictures of the same-named folder, side by side;
+    //    double-click opens it and unfolds pages and pictures in the sidebar.
+    await page.getByRole("button", { name: /^文件夹 品牌方向/u }).dblClick();
     await expect.element(home.getByRole("heading", { name: "品牌方向" })).toBeVisible();
     await expect.element(sidebar().getByRole("button", { name: "logo-dark@2x" })).toBeVisible();
     await shot("03-space");
 
-    // 3. A picture: large, with its details and tags, and the item's actions above.
-    await home.getByRole("button", { name: "图片 logo-dark@2x" }).click();
+    // 3. A picture: double-click opens large view, with its details and tags.
+    await home.getByRole("button", { name: "图片 logo-dark@2x" }).dblClick();
     const inspector = page.getByRole("complementary", { name: "图片信息" });
     await expect.element(inspector.getByText("PNG", { exact: true })).toBeVisible();
     await inspector.getByRole("button", { name: "添加标签" }).click();
@@ -907,7 +1011,7 @@ describe("资料空间", () => {
     await expect.element(home.getByText("先试试这几件事")).toBeVisible();
     await shot("30-first-run-home");
 
-    await page.getByRole("button", { name: /^文件夹 苔，/u }).click();
+    await page.getByRole("button", { name: /^文件夹 苔，/u }).dblClick();
     await expect.element(home.getByRole("heading", { name: "苔", exact: true })).toBeVisible();
     await expect.element(home.getByText("返景入深林，复照青苔上。")).toBeVisible();
     await expect.element(home.getByRole("button", { name: "图片 苔痕上阶" })).toBeVisible();
@@ -931,8 +1035,8 @@ describe("资料空间", () => {
     await mount();
     useGalleryLocalStore.getState().replaceAll({ tags: {} });
     const home = content();
-    await page.getByRole("button", { name: /^文件夹 品牌方向/u }).click();
-    await home.getByRole("button", { name: "图片 logo-dark@2x" }).click();
+    await page.getByRole("button", { name: /^文件夹 品牌方向/u }).dblClick();
+    await home.getByRole("button", { name: "图片 logo-dark@2x" }).dblClick();
     const inspector = page.getByRole("complementary", { name: "图片信息" });
     await expect.element(inspector).toBeVisible();
     await expect.element(inspector.getByText("PNG", { exact: true })).toBeVisible();
@@ -997,9 +1101,92 @@ describe("资料空间", () => {
     // Scrolling toward the sentinel auto-advances the progressive grid to all 60 items.
     loadMoreBtn.element().scrollIntoView({ block: "center" });
     await expect.poll(() => document.querySelectorAll("[data-space-item]").length).toBe(60);
-    await home.getByRole("button", { name: "图片 图库图 0", exact: true }).click();
+    await home.getByRole("button", { name: "图片 图库图 0", exact: true }).dblClick();
     const inspector = page.getByRole("complementary", { name: "图片信息" });
     await expect.element(inspector).toBeVisible();
     await expect.element(inspector.getByText("400 × 300", { exact: true })).toBeVisible();
+  });
+
+  it("separates upper folders from loose files, supports click-select/multi-select, drag-into-folder, and Ctrl+wheel zoom", async () => {
+    await mount();
+    const home = content();
+    const foldersSection = document.querySelector<HTMLElement>("[data-space-folders-section]");
+    const looseSection = document.querySelector<HTMLElement>("[data-space-loose-section]");
+    expect(foldersSection).not.toBeNull();
+    expect(looseSection).not.toBeNull();
+    expect(foldersSection!.contains(looseSection)).toBe(false);
+    expect(
+      foldersSection!.compareDocumentPosition(looseSection!) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).not.toBe(0);
+
+    // Single click selects without opening the folder.
+    const brandFolderBtn = page.getByRole("button", { name: /^文件夹 品牌方向/u });
+    await brandFolderBtn.click();
+    expect(brandFolderBtn.element().hasAttribute("data-selected")).toBe(true);
+    await expect.element(home.getByRole("heading", { name: "品牌方向" })).not.toBeInTheDocument();
+
+    // Single click on a loose note selects it without opening, and shows the multi-select bar.
+    const looseNoteBtn = home.getByRole("button", { name: /^这周要做的事(?! 的操作)/u });
+    await looseNoteBtn.click();
+    await expect
+      .element(home.getByRole("toolbar", { name: "已选条目操作" }))
+      .toHaveTextContent("已选 1 项");
+
+    // Multi-select a second loose file via its selection checkbox.
+    const secondCard = document.querySelector<HTMLElement>(
+      "[data-space-loose-section] [data-space-item='page:illustrators']",
+    )!;
+    expect(secondCard).not.toBeNull();
+    await userEvent.hover(secondCard);
+    const secondToggle = secondCard.querySelector<HTMLElement>("[data-space-select-toggle]")!;
+    expect(secondToggle).not.toBeNull();
+    await userEvent.click(secondToggle);
+    await expect
+      .element(home.getByRole("toolbar", { name: "已选条目操作" }))
+      .toHaveTextContent("已选 2 项");
+
+    // Drag the multi-selected items onto 「品牌方向」 folder card and drop.
+    const looseNoteCard = looseNoteBtn.element().closest<HTMLElement>("[data-space-item]")!;
+    const dt = new DataTransfer();
+    looseNoteCard.dispatchEvent(
+      new DragEvent("dragstart", { bubbles: true, cancelable: true, dataTransfer: dt }),
+    );
+    const brandEl = brandFolderBtn.element();
+    brandEl.dispatchEvent(
+      new DragEvent("dragenter", { bubbles: true, cancelable: true, dataTransfer: dt }),
+    );
+    brandEl.dispatchEvent(
+      new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer: dt }),
+    );
+    brandEl.dispatchEvent(
+      new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: dt }),
+    );
+    looseNoteCard.dispatchEvent(
+      new DragEvent("dragend", { bubbles: true, cancelable: true, dataTransfer: dt }),
+    );
+
+    // Both moved items immediately count inside 「品牌方向」 (2->4 篇笔记 · 5 张图片).
+    await expect
+      .element(page.getByRole("button", { name: "文件夹 品牌方向，4 篇笔记 · 5 张图片" }))
+      .toBeVisible();
+
+    // Double-click opens 「品牌方向」 and Ctrl+wheel scales the adaptive masonry layout smoothly.
+    await page.getByRole("button", { name: /^文件夹 品牌方向/u }).dblClick();
+    await expect.element(home.getByRole("heading", { name: "品牌方向" })).toBeVisible();
+    const grid = () => document.querySelector<HTMLElement>("[data-space-grid]")!;
+    await vi.waitFor(() => expect(grid()).not.toBeNull());
+    const initialCols = Number(grid().dataset.masonryColumns);
+    const initialWidth = Number(grid().dataset.masonryColWidth);
+    const scroller = grid().closest<HTMLElement>(".overflow-y-auto")!;
+    scroller.dispatchEvent(
+      new WheelEvent("wheel", { bubbles: true, cancelable: true, ctrlKey: true, deltaY: -360 }),
+    );
+    await expect
+      .element(page.getByRole("status").filter({ hasText: /每行 \d+ 列/u }))
+      .toBeVisible();
+    await vi.waitFor(() =>
+      expect(Number(grid().dataset.masonryColWidth)).toBeGreaterThan(initialWidth),
+    );
+    expect(Number(grid().dataset.masonryColumns)).toBeLessThanOrEqual(initialCols);
   });
 });

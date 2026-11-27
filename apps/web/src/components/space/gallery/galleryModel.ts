@@ -56,6 +56,7 @@ export function buildGalleryTree(input: {
   readonly items: readonly SpaceItem[];
   readonly spaces: readonly PageSpace[];
   readonly libraryFolders: readonly LibraryFolder[];
+  readonly folderAssignments?: Readonly<Record<string, string>>;
 }): GalleryTree {
   const live = input.items.filter((item) => item.trashedAt === null && isShownPage(item));
   const drafts = new Map<
@@ -90,12 +91,14 @@ export function buildGalleryTree(input: {
   const contents = new Map<string, SpaceItem[]>();
   const loose: SpaceItem[] = [];
   for (const item of live) {
+    const assignedKey = input.folderAssignments?.[item.key];
+    const resolvedAssigned = assignedKey && drafts.has(assignedKey) ? assignedKey : undefined;
     const key =
       item.source.type === "library" && item.source.item.folderId
         ? libraryFolderKey.get(item.source.item.folderId)
         : item.spaceId
           ? spaceKey.get(item.spaceId)
-          : undefined;
+          : resolvedAssigned;
     if (!key) {
       loose.push(item);
       continue;
@@ -121,29 +124,49 @@ export function buildGalleryTree(input: {
 }
 
 /**
- * Files each picture in a 资料库 folder into the 资料空间 of the same name, so that space's view,
- * search and sidebar show its pages and pictures together. Other items are returned as they are.
+ * Files each picture in a 资料库 folder into the 资料空间 of the same name, and resolves any
+ * local folder assignments for items without server folder columns (such as chat outputs),
+ * so that space's view, search and sidebar show all its contents together.
  */
 export function fileIntoSpaces(input: {
   readonly items: readonly SpaceItem[];
   readonly spaces: readonly PageSpace[];
   readonly libraryFolders: readonly LibraryFolder[];
+  readonly folderAssignments?: Readonly<Record<string, string>>;
 }): SpaceItem[] {
   const spaceByTitle = new Map<string, PageSpace>();
+  const spaceById = new Map<string, PageSpace>();
   for (const space of input.spaces) {
-    if (space.trashedAt === null && !spaceByTitle.has(folderTitleKey(space.title)))
+    if (space.trashedAt !== null) continue;
+    spaceById.set(space.id, space);
+    if (!spaceByTitle.has(folderTitleKey(space.title))) {
       spaceByTitle.set(folderTitleKey(space.title), space);
+    }
   }
   const spaceByFolder = new Map<string, PageSpace>();
   for (const folder of input.libraryFolders) {
     const space = spaceByTitle.get(folderTitleKey(folder.title));
     if (space) spaceByFolder.set(folder.id, space);
   }
-  if (spaceByFolder.size === 0) return [...input.items];
+  const hasAssignments =
+    input.folderAssignments !== undefined && Object.keys(input.folderAssignments).length > 0;
+  if (spaceByFolder.size === 0 && !hasAssignments) return [...input.items];
   return input.items.map((item) => {
-    if (item.source.type !== "library" || !item.source.item.folderId) return item;
-    const space = spaceByFolder.get(item.source.item.folderId);
-    return space ? { ...item, spaceId: space.id } : item;
+    if (item.source.type === "library" && item.source.item.folderId) {
+      const space = spaceByFolder.get(item.source.item.folderId);
+      return space ? { ...item, spaceId: space.id } : item;
+    }
+    if (item.spaceId === null && hasAssignments) {
+      const assigned = input.folderAssignments?.[item.key];
+      if (assigned?.startsWith("space:")) {
+        const space = spaceById.get(assigned.slice("space:".length));
+        if (space) return { ...item, spaceId: space.id };
+      } else if (assigned?.startsWith("folder:")) {
+        const space = spaceByFolder.get(assigned.slice("folder:".length));
+        if (space) return { ...item, spaceId: space.id };
+      }
+    }
+    return item;
   });
 }
 

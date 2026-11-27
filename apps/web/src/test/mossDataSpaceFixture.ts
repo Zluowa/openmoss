@@ -156,7 +156,18 @@ export function createDataSpaceFixture() {
         };
       } else if (input.op === "pin")
         document = { ...document, page: { ...document.page, pinned: input.pinned } };
-      else if (input.op === "trash" || input.op === "trash-space")
+      else if (input.op === "move") {
+        const parent = input.parentPageId ? ownedDocuments().get(input.parentPageId) : undefined;
+        document = {
+          ...document,
+          page: {
+            ...document.page,
+            spaceId: input.spaceId,
+            parentPageId: input.parentPageId,
+            rootPageId: parent?.page.rootPageId ?? document.page.id,
+          },
+        };
+      } else if (input.op === "trash" || input.op === "trash-space")
         document = { ...document, page: { ...document.page, trashedAt: NOW } };
       else if (input.op === "restore" || input.op === "restore-space")
         document = { ...document, page: { ...document.page, trashedAt: null } };

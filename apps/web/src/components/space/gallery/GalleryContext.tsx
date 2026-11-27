@@ -102,14 +102,16 @@ export function GalleryProvider(
   },
 ) {
   const { account, scopeSpaceId } = props;
+  const folderAssignments = useGalleryLocalStore((state) => state.folderAssignments);
   const tree = useMemo(
     () =>
       buildGalleryTree({
         items: props.items,
         spaces: props.spaces,
         libraryFolders: props.libraryFolders,
+        folderAssignments,
       }),
-    [props.items, props.spaces, props.libraryFolders],
+    [props.items, props.spaces, props.libraryFolders, folderAssignments],
   );
   const items = useMemo(
     () => [...tree.loose, ...tree.folders.flatMap((folder) => folder.items)],

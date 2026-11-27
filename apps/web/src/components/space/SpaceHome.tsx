@@ -10,12 +10,25 @@ import {
   BUILT_IN_TEMPLATES,
   type SpaceTemplateDefinition,
 } from "@moss/shared/spaceItems/templates";
-import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type DragEvent as ReactDragEvent,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from "react";
 
 import {
+  AddPlusIcon,
   CheckIcon,
   DataDashboardIcon,
   FilterIcon,
+  FolderIcon,
   LayoutGridIcon,
   ListBulletsIcon,
   PageTextIcon,
@@ -23,7 +36,9 @@ import {
   SlidesIcon,
   SparklesIcon,
   TableIcon,
+  TrashCanIcon,
   WhiteboardIcon,
+  XIcon,
   type LucideIcon,
 } from "~/lib/icons";
 import { useTheme } from "~/hooks/useTheme";
@@ -50,7 +65,21 @@ import {
   type GalleryFolder,
 } from "./gallery/galleryModel";
 import type { SpaceCreateAction } from "./SpaceCreateMenu";
+import {
+  clearActiveSpaceDragKeys,
+  setActiveSpaceDragKeys,
+  SPACE_ITEMS_DRAG_MIME,
+} from "./spaceDragState";
 import { SpaceMasonryGrid } from "./SpaceMasonryGrid";
+import {
+  clampMasonryTargetWidth,
+  computeMasonryMetrics,
+  DEFAULT_MASONRY_TARGET_WIDTH,
+  MAX_MASONRY_TARGET_WIDTH,
+  MIN_MASONRY_TARGET_WIDTH,
+  readStoredMasonryTargetWidth,
+  writeStoredMasonryTargetWidth,
+} from "./spaceMasonryLayout";
 import { SpaceItemCard, SpaceListHeader, type SpaceItemActions } from "./SpaceItemCard";
 import {
   getSpaceDashboardRegistryVersion,
@@ -204,6 +233,7 @@ export function SpaceHome(
     /** Folders shown above the items on the 全部 home: 资料空间 and 资料库 folders. */
     folders?: readonly GalleryFolder[];
     onOpenFolder?: (folder: GalleryFolder) => void;
+    onTrashMany?: ((items: readonly SpaceItem[]) => void) | undefined;
     /** The card to outline: the folder or item the person just came back from. */
     marked?: string | null;
   },
@@ -221,7 +251,21 @@ export function SpaceHome(
   const [launchError, setLaunchError] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [visibleCount, setVisibleCount] = useState(INITIAL_PAGE_SIZE);
+  const [targetColumnWidth, setTargetColumnWidth] = useState<number>(readStoredMasonryTargetWidth);
+  const [zoomNotice, setZoomNotice] = useState<{ columns: number; scalePct: number } | null>(null);
+  const [selectedKeys, setSelectedKeys] = useState<ReadonlySet<string>>(() => new Set());
+  const [draggingKeys, setDraggingKeys] = useState<ReadonlySet<string>>(() => new Set());
+  const [marquee, setMarquee] = useState<{
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  } | null>(null);
+  const anchorKeyRef = useRef<string | null>(null);
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
+  const zoomTimerRef = useRef<number | null>(null);
+  const dragPreviewRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 60_000);
@@ -298,10 +342,13 @@ export function SpaceHome(
   const currentSectionKey = sectionKey(props.section);
   useEffect(() => {
     setVisibleCount(INITIAL_PAGE_SIZE);
+    setSelectedKeys(new Set());
+    anchorKeyRef.current = null;
   }, [props.section.type, currentSectionKey, effectiveKind, owner, sort, view]);
   const pagedTotalCount = view === "grid" ? gridItems.length : view === "list" ? visible.length : 0;
   const pagedGridItems = view === "grid" ? gridItems.slice(0, visibleCount) : gridItems;
   const pagedListItems = view === "list" ? visible.slice(0, visibleCount) : visible;
+  const orderedInteractiveItems = view === "list" ? pagedListItems : pagedGridItems;
   const remainingCount = Math.max(0, pagedTotalCount - visibleCount);
   const hasMore = remainingCount > 0;
   useEffect(() => {
@@ -319,6 +366,331 @@ export function SpaceHome(
     observer.observe(sentinel);
     return () => observer.disconnect();
   }, [hasMore, visibleCount]);
+
+  const itemByKey = useMemo(
+    () => new Map(props.items.map((item) => [item.key, item] as const)),
+    [props.items],
+  );
+  const folderByKey = useMemo(
+    () => new Map(folders.map((folder) => [folder.key, folder] as const)),
+    [folders],
+  );
+  const selectedFileItems = useMemo(
+    () =>
+      [...selectedKeys]
+        .map((key) => itemByKey.get(key))
+        .filter((entry): entry is SpaceItem => entry !== undefined && entry.trashedAt === null),
+    [selectedKeys, itemByKey],
+  );
+  const selectedFolder = useMemo(() => {
+    if (selectedKeys.size !== 1) return null;
+    const [onlyKey] = [...selectedKeys];
+    return onlyKey ? (folderByKey.get(onlyKey) ?? null) : null;
+  }, [selectedKeys, folderByKey]);
+  const currentFolderKey =
+    props.section.type === "space"
+      ? `space:${props.section.spaceId}`
+      : props.section.type === "folder"
+        ? `folder:${props.section.folderId}`
+        : null;
+
+  const applyZoomWidth = useCallback((nextWidth: number) => {
+    const clamped = clampMasonryTargetWidth(nextWidth);
+    setTargetColumnWidth(clamped);
+    writeStoredMasonryTargetWidth(clamped);
+    const width = scrollContainerRef.current?.getBoundingClientRect().width ?? 960;
+    const metrics = computeMasonryMetrics(Math.max(240, width - 64), clamped);
+    setZoomNotice({
+      columns: metrics.columnCount,
+      scalePct: Math.round((clamped / DEFAULT_MASONRY_TARGET_WIDTH) * 100),
+    });
+    if (zoomTimerRef.current !== null) window.clearTimeout(zoomTimerRef.current);
+    zoomTimerRef.current = window.setTimeout(() => {
+      zoomTimerRef.current = null;
+      setZoomNotice(null);
+    }, 1_100);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (zoomTimerRef.current !== null) window.clearTimeout(zoomTimerRef.current);
+      if (dragPreviewRef.current) {
+        dragPreviewRef.current.remove();
+        dragPreviewRef.current = null;
+      }
+      clearActiveSpaceDragKeys();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (view !== "grid") return;
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const onWheel = (event: WheelEvent) => {
+      if (!(event.ctrlKey || event.metaKey)) return;
+      if (Math.abs(event.deltaY) < 0.01) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setTargetColumnWidth((prev) => {
+        const next = clampMasonryTargetWidth(prev * Math.exp(-event.deltaY * 0.0022));
+        writeStoredMasonryTargetWidth(next);
+        const width = el.getBoundingClientRect().width || 960;
+        const metrics = computeMasonryMetrics(Math.max(240, width - 64), next);
+        setZoomNotice({
+          columns: metrics.columnCount,
+          scalePct: Math.round((next / DEFAULT_MASONRY_TARGET_WIDTH) * 100),
+        });
+        if (zoomTimerRef.current !== null) window.clearTimeout(zoomTimerRef.current);
+        zoomTimerRef.current = window.setTimeout(() => {
+          zoomTimerRef.current = null;
+          setZoomNotice(null);
+        }, 1_100);
+        return next;
+      });
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [view]);
+
+  const handleTrashSelected = useCallback(() => {
+    if (selectedFileItems.length === 0) return;
+    const targets = [...selectedFileItems];
+    setSelectedKeys(new Set());
+    if (props.onTrashMany) {
+      props.onTrashMany(targets);
+      return;
+    }
+    for (const item of targets) props.onTrash?.(item);
+  }, [selectedFileItems, props.onTrashMany, props.onTrash]);
+
+  useEffect(() => {
+    if (view === "canvas") return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)
+      ) {
+        return;
+      }
+      if (event.key === "Escape" && selectedKeys.size > 0) {
+        event.preventDefault();
+        setSelectedKeys(new Set());
+        return;
+      }
+      if (event.key === "Enter") {
+        if (selectedFolder && props.onOpenFolder) {
+          event.preventDefault();
+          props.onOpenFolder(selectedFolder);
+          return;
+        }
+        if (selectedFileItems.length === 1) {
+          event.preventDefault();
+          props.onOpen(selectedFileItems[0]!);
+          return;
+        }
+      }
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "a") {
+        if (orderedInteractiveItems.length === 0) return;
+        event.preventDefault();
+        setSelectedKeys(new Set(orderedInteractiveItems.map((entry) => entry.key)));
+        anchorKeyRef.current = orderedInteractiveItems[0]?.key ?? null;
+        return;
+      }
+      if (
+        (event.key === "Delete" || event.key === "Backspace") &&
+        selectedFileItems.length > 0 &&
+        (props.onTrashMany || props.onTrash)
+      ) {
+        event.preventDefault();
+        handleTrashSelected();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [
+    view,
+    selectedKeys,
+    selectedFolder,
+    selectedFileItems,
+    orderedInteractiveItems,
+    props.onOpenFolder,
+    props.onOpen,
+    props.onTrashMany,
+    props.onTrash,
+    handleTrashSelected,
+  ]);
+
+  const handleFolderSelect = (folder: GalleryFolder) => {
+    setSelectedKeys(new Set([folder.key]));
+    anchorKeyRef.current = null;
+  };
+
+  const handleItemSelect = (item: SpaceItem, event: ReactMouseEvent<HTMLElement>) => {
+    if (event.shiftKey && anchorKeyRef.current) {
+      const orderedKeys = orderedInteractiveItems.map((entry) => entry.key);
+      const start = orderedKeys.indexOf(anchorKeyRef.current);
+      const end = orderedKeys.indexOf(item.key);
+      if (start !== -1 && end !== -1) {
+        const [low, high] = start <= end ? [start, end] : [end, start];
+        const next = new Set(
+          event.metaKey || event.ctrlKey
+            ? [...selectedKeys].filter((k) => !folderByKey.has(k))
+            : [],
+        );
+        for (let idx = low; idx <= high; idx += 1) {
+          const key = orderedKeys[idx];
+          if (key) next.add(key);
+        }
+        setSelectedKeys(next);
+        return;
+      }
+    }
+    if (event.metaKey || event.ctrlKey) {
+      setSelectedKeys((prev) => {
+        const next = new Set([...prev].filter((k) => !folderByKey.has(k)));
+        if (next.has(item.key)) next.delete(item.key);
+        else next.add(item.key);
+        return next;
+      });
+      anchorKeyRef.current = item.key;
+      return;
+    }
+    setSelectedKeys(new Set([item.key]));
+    anchorKeyRef.current = item.key;
+  };
+
+  const handleToggleSelect = (item: SpaceItem) => {
+    setSelectedKeys((prev) => {
+      const next = new Set([...prev].filter((k) => !folderByKey.has(k)));
+      if (next.has(item.key)) next.delete(item.key);
+      else next.add(item.key);
+      return next;
+    });
+    anchorKeyRef.current = item.key;
+  };
+
+  const handleDragStartItem = (item: SpaceItem, event: ReactDragEvent<HTMLElement>) => {
+    const useSelection = selectedKeys.has(item.key) && selectedFileItems.length > 0;
+    const dragKeys = useSelection ? selectedFileItems.map((entry) => entry.key) : [item.key];
+    if (!useSelection) {
+      setSelectedKeys(new Set([item.key]));
+      anchorKeyRef.current = item.key;
+    }
+    setDraggingKeys(new Set(dragKeys));
+    setActiveSpaceDragKeys(dragKeys);
+    if (event.dataTransfer) {
+      event.dataTransfer.setData(SPACE_ITEMS_DRAG_MIME, JSON.stringify(dragKeys));
+      event.dataTransfer.setData("text/plain", dragKeys.join(","));
+      event.dataTransfer.effectAllowed = "move";
+      if (dragKeys.length > 1) {
+        const badge = document.createElement("div");
+        badge.textContent = `移动 ${dragKeys.length} 项`;
+        badge.className =
+          "pointer-events-none fixed -top-96 -left-96 rounded-full bg-info px-3 py-1.5 text-ui-xs font-medium text-white shadow-md";
+        document.body.appendChild(badge);
+        dragPreviewRef.current = badge;
+        event.dataTransfer.setDragImage(badge, 24, 16);
+        requestAnimationFrame(() => {
+          badge.remove();
+          if (dragPreviewRef.current === badge) dragPreviewRef.current = null;
+        });
+      }
+    }
+  };
+
+  const handleDragEndItem = () => {
+    setDraggingKeys(new Set());
+    clearActiveSpaceDragKeys();
+    if (dragPreviewRef.current) {
+      dragPreviewRef.current.remove();
+      dragPreviewRef.current = null;
+    }
+  };
+
+  const handleDropOnFolder = (folder: GalleryFolder, keys: readonly string[]) => {
+    const resolved = keys
+      .map((key) => itemByKey.get(key))
+      .filter((entry): entry is SpaceItem => entry !== undefined && entry.trashedAt === null);
+    setDraggingKeys(new Set());
+    clearActiveSpaceDragKeys();
+    if (resolved.length === 0) return;
+    setSelectedKeys(new Set());
+    props.onMoveToFolder?.(resolved, folder);
+  };
+
+  const handleMoveSelected = (target: GalleryFolder | null) => {
+    if (selectedFileItems.length === 0) return;
+    const targets = [...selectedFileItems];
+    setSelectedKeys(new Set());
+    props.onMoveToFolder?.(targets, target);
+  };
+
+  const handleContainerPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (view === "canvas" || event.button !== 0) return;
+    const target = event.target as HTMLElement | null;
+    if (
+      target?.closest(
+        "[data-space-item], [data-gallery-card], button, a, input, textarea, [role='menu'], [data-space-selection-bar]",
+      )
+    ) {
+      return;
+    }
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const additive = event.metaKey || event.ctrlKey || event.shiftKey;
+    const baseSelection = additive
+      ? new Set([...selectedKeys].filter((k) => !folderByKey.has(k)))
+      : new Set<string>();
+    const startX = event.clientX;
+    const startY = event.clientY;
+    let dragged = false;
+
+    const onMove = (moveEvent: globalThis.PointerEvent) => {
+      const dx = moveEvent.clientX - startX;
+      const dy = moveEvent.clientY - startY;
+      if (!dragged && Math.hypot(dx, dy) < 6) return;
+      dragged = true;
+      const rect = container.getBoundingClientRect();
+      const x1 = Math.min(startX, moveEvent.clientX);
+      const x2 = Math.max(startX, moveEvent.clientX);
+      const y1 = Math.min(startY, moveEvent.clientY);
+      const y2 = Math.max(startY, moveEvent.clientY);
+      setMarquee({
+        left: x1 - rect.left + container.scrollLeft,
+        top: y1 - rect.top + container.scrollTop,
+        width: x2 - x1,
+        height: y2 - y1,
+      });
+      const next = new Set(baseSelection);
+      for (const node of container.querySelectorAll<HTMLElement>("[data-space-item]")) {
+        const key = node.dataset.spaceItem;
+        if (!key) continue;
+        const cardRect = node.getBoundingClientRect();
+        const intersects =
+          cardRect.right >= x1 &&
+          cardRect.left <= x2 &&
+          cardRect.bottom >= y1 &&
+          cardRect.top <= y2;
+        if (intersects) next.add(key);
+      }
+      setSelectedKeys(next);
+    };
+
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+      setMarquee(null);
+      if (!dragged && !additive) {
+        setSelectedKeys(new Set());
+      }
+    };
+
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+  };
   const canvasGroups: CanvasGroup[] = showFolders
     ? [
         ...folders
@@ -410,6 +782,47 @@ export function SpaceHome(
             ) : null}
           </ComposerPickerMenuPopup>
         </Menu>
+        {view === "grid" ? (
+          <div
+            className="flex items-center rounded-control bg-[color-mix(in_srgb,var(--foreground)_4%,transparent)] p-0.5"
+            aria-label="卡片缩放"
+          >
+            <Button
+              type="button"
+              size="icon-xs"
+              variant="ghost"
+              aria-label="缩小卡片"
+              disabled={targetColumnWidth <= MIN_MASONRY_TARGET_WIDTH}
+              className="size-6 rounded-inline text-muted-foreground hover:text-foreground disabled:opacity-40"
+              onClick={() => applyZoomWidth(targetColumnWidth - 36)}
+            >
+              <svg viewBox="0 0 16 16" className="size-3.5" fill="none" aria-hidden>
+                <path d="M3.5 8h9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+              </svg>
+            </Button>
+            <Button
+              type="button"
+              size="xs"
+              variant="ghost"
+              aria-label="重置卡片大小"
+              className="h-6 rounded-inline px-1.5 text-ui-xs tabular-nums text-muted-foreground hover:text-foreground"
+              onClick={() => applyZoomWidth(DEFAULT_MASONRY_TARGET_WIDTH)}
+            >
+              {Math.round((targetColumnWidth / DEFAULT_MASONRY_TARGET_WIDTH) * 100)}%
+            </Button>
+            <Button
+              type="button"
+              size="icon-xs"
+              variant="ghost"
+              aria-label="放大卡片"
+              disabled={targetColumnWidth >= MAX_MASONRY_TARGET_WIDTH}
+              className="size-6 rounded-inline text-muted-foreground hover:text-foreground disabled:opacity-40"
+              onClick={() => applyZoomWidth(targetColumnWidth + 36)}
+            >
+              <AddPlusIcon aria-hidden className="size-3.5" />
+            </Button>
+          </div>
+        ) : null}
         <div className="flex items-center rounded-control bg-[color-mix(in_srgb,var(--foreground)_4%,transparent)] p-0.5">
           {(
             [
@@ -435,7 +848,34 @@ export function SpaceHome(
           ))}
         </div>
       </header>
-      <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-8 md:px-10">
+      <div
+        ref={scrollContainerRef}
+        onPointerDown={handleContainerPointerDown}
+        className="relative min-h-0 flex-1 overflow-y-auto px-6 pb-20 md:px-10"
+      >
+        {marquee ? (
+          <div
+            aria-hidden
+            data-space-marquee
+            className="pointer-events-none absolute z-30 rounded-control border border-info/70 bg-info/12"
+            style={{
+              left: marquee.left,
+              top: marquee.top,
+              width: marquee.width,
+              height: marquee.height,
+            }}
+          />
+        ) : null}
+        {zoomNotice ? (
+          <div
+            role="status"
+            aria-live="polite"
+            data-space-zoom-indicator
+            className="pointer-events-none fixed right-8 bottom-6 z-40 rounded-full border border-border/80 bg-card/92 px-3 py-1.5 text-ui-xs font-medium text-foreground shadow-md backdrop-blur-md"
+          >
+            每行 {zoomNotice.columns} 列 · {zoomNotice.scalePct}%
+          </div>
+        ) : null}
         {showStarterRows ? (
           <section className="mb-4" aria-label="新建" data-space-create-tiles>
             <div className="flex flex-wrap gap-3">
@@ -545,35 +985,108 @@ export function SpaceHome(
           </div>
         ) : view === "grid" ? (
           <>
-            <SpaceMasonryGrid data-space-grid>
-              {[
-                ...(showFolders
-                  ? folders.map((folder) => ({
-                      key: folder.key,
-                      node: (
-                        <SpaceFolderCard
-                          folder={folder}
-                          marked={props.marked === folder.key}
-                          onOpen={(entry) => props.onOpenFolder?.(entry)}
-                        />
-                      ),
-                    }))
-                  : []),
-                ...pagedGridItems.map((item) => ({
+            {showFolders ? (
+              <>
+                <section aria-label="资料空间" data-space-folders-section className="mb-8">
+                  <div className="mb-3 flex items-center justify-between gap-2">
+                    <div className="flex items-baseline gap-2">
+                      <h2 className="text-ui font-medium text-foreground">资料空间</h2>
+                      <span className="text-ui-xs tabular-nums text-muted-foreground">
+                        {folders.length}
+                      </span>
+                    </div>
+                    <Button
+                      size="xs"
+                      variant="ghost"
+                      className="text-muted-foreground hover:text-foreground"
+                      aria-label="在此新建资料空间"
+                      onClick={() => props.onCreate("space")}
+                    >
+                      <AddPlusIcon aria-hidden className="size-3.5" />
+                      新建
+                    </Button>
+                  </div>
+                  <div className="grid gap-5 [grid-template-columns:repeat(auto-fill,minmax(min(100%,15.5rem),1fr))]">
+                    {folders.map((folder) => (
+                      <SpaceFolderCard
+                        key={folder.key}
+                        folder={folder}
+                        marked={props.marked === folder.key}
+                        selected={selectedKeys.has(folder.key)}
+                        onSelect={(entry) => handleFolderSelect(entry)}
+                        onOpen={(entry) => props.onOpenFolder?.(entry)}
+                        onDropKeys={handleDropOnFolder}
+                      />
+                    ))}
+                  </div>
+                </section>
+                <section
+                  aria-label="未归入文件夹"
+                  data-space-loose-section
+                  className="border-t border-border/50 pt-6"
+                >
+                  <div className="mb-4 flex items-baseline gap-2">
+                    <h2 className="text-ui font-medium text-foreground">未归入文件夹</h2>
+                    <span className="text-ui-xs tabular-nums text-muted-foreground">
+                      {gridItems.length}
+                    </span>
+                  </div>
+                  {gridItems.length === 0 ? (
+                    <p className="py-8 text-center text-ui-sm text-muted-foreground">
+                      所有散落条目都已归入上方文件夹
+                    </p>
+                  ) : (
+                    <SpaceMasonryGrid data-space-grid targetColumnWidth={targetColumnWidth}>
+                      {pagedGridItems.map((item) => ({
+                        key: item.key,
+                        node: (
+                          <SpaceItemCard
+                            {...props}
+                            folders={folders}
+                            item={item}
+                            view="grid"
+                            place={props.placeOf(item)}
+                            now={now}
+                            marked={props.marked === item.key}
+                            selected={selectedKeys.has(item.key)}
+                            selectionActive={selectedFileItems.length > 0}
+                            onSelect={handleItemSelect}
+                            onToggleSelect={handleToggleSelect}
+                            onDragStartItem={handleDragStartItem}
+                            onDragEndItem={handleDragEndItem}
+                            isDragging={draggingKeys.has(item.key)}
+                          />
+                        ),
+                      }))}
+                    </SpaceMasonryGrid>
+                  )}
+                </section>
+              </>
+            ) : (
+              <SpaceMasonryGrid data-space-grid targetColumnWidth={targetColumnWidth}>
+                {pagedGridItems.map((item) => ({
                   key: item.key,
                   node: (
                     <SpaceItemCard
                       {...props}
+                      folders={folders}
                       item={item}
                       view="grid"
                       place={props.placeOf(item)}
                       now={now}
                       marked={props.marked === item.key}
+                      selected={selectedKeys.has(item.key)}
+                      selectionActive={selectedFileItems.length > 0}
+                      onSelect={handleItemSelect}
+                      onToggleSelect={handleToggleSelect}
+                      onDragStartItem={handleDragStartItem}
+                      onDragEndItem={handleDragEndItem}
+                      isDragging={draggingKeys.has(item.key)}
                     />
                   ),
-                })),
-              ]}
-            </SpaceMasonryGrid>
+                }))}
+              </SpaceMasonryGrid>
+            )}
             {hasMore ? (
               <div ref={loadMoreRef} className="flex justify-center pt-6 pb-2">
                 <Button
@@ -589,6 +1102,29 @@ export function SpaceHome(
           </>
         ) : (
           <>
+            {showFolders ? (
+              <section aria-label="资料空间" data-space-folders-section className="mb-6">
+                <div className="mb-3 flex items-baseline gap-2">
+                  <h2 className="text-ui font-medium text-foreground">资料空间</h2>
+                  <span className="text-ui-xs tabular-nums text-muted-foreground">
+                    {folders.length}
+                  </span>
+                </div>
+                <div className="grid gap-5 [grid-template-columns:repeat(auto-fill,minmax(min(100%,15.5rem),1fr))]">
+                  {folders.map((folder) => (
+                    <SpaceFolderCard
+                      key={folder.key}
+                      folder={folder}
+                      marked={props.marked === folder.key}
+                      selected={selectedKeys.has(folder.key)}
+                      onSelect={(entry) => handleFolderSelect(entry)}
+                      onOpen={(entry) => props.onOpenFolder?.(entry)}
+                      onDropKeys={handleDropOnFolder}
+                    />
+                  ))}
+                </div>
+              </section>
+            ) : null}
             <div role="grid" aria-label="条目列表" data-space-list>
               <SpaceListHeader />
               <div role="rowgroup" className="flex flex-col gap-0.5 pt-1">
@@ -596,11 +1132,19 @@ export function SpaceHome(
                   <SpaceItemCard
                     key={item.key}
                     {...props}
+                    folders={folders}
                     item={item}
                     view="list"
                     place={props.placeOf(item)}
                     now={now}
                     marked={props.marked === item.key}
+                    selected={selectedKeys.has(item.key)}
+                    selectionActive={selectedFileItems.length > 0}
+                    onSelect={handleItemSelect}
+                    onToggleSelect={handleToggleSelect}
+                    onDragStartItem={handleDragStartItem}
+                    onDragEndItem={handleDragEndItem}
+                    isDragging={draggingKeys.has(item.key)}
                   />
                 ))}
               </div>
@@ -620,6 +1164,97 @@ export function SpaceHome(
           </>
         )}
       </div>
+      {selectedFileItems.length > 0 ? (
+        <div
+          role="toolbar"
+          aria-label="已选条目操作"
+          data-space-selection-bar
+          className="pointer-events-auto fixed bottom-5 left-1/2 z-40 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-border/80 bg-card/95 px-3 py-1.5 shadow-lg backdrop-blur-md"
+        >
+          <span className="px-1.5 text-ui-xs font-medium tabular-nums text-foreground">
+            已选 {selectedFileItems.length} 项
+          </span>
+          {selectedFileItems.length === 1 ? (
+            <Button
+              size="xs"
+              variant="ghost"
+              className="rounded-full"
+              onClick={() => props.onOpen(selectedFileItems[0]!)}
+            >
+              打开
+            </Button>
+          ) : null}
+          {props.onMoveToFolder && (folders.length > 0 || currentFolderKey !== null) ? (
+            <Menu>
+              <MenuTrigger
+                render={
+                  <Button size="xs" variant="ghost" className="gap-1 rounded-full">
+                    <FolderIcon aria-hidden className="size-3.5" />
+                    移入资料空间
+                  </Button>
+                }
+              />
+              <ComposerPickerMenuPopup align="center" className="w-52 min-w-52">
+                <MenuGroup>
+                  <MenuGroupLabel>选择目标资料空间</MenuGroupLabel>
+                  {folders.map((folder) => (
+                    <MenuItem
+                      key={folder.key}
+                      disabled={folder.key === currentFolderKey}
+                      onClick={() => handleMoveSelected(folder)}
+                    >
+                      <span className="flex-1 truncate">{folder.title}</span>
+                      {folder.key === currentFolderKey ? (
+                        <CheckIcon aria-hidden className="size-3.5" />
+                      ) : null}
+                    </MenuItem>
+                  ))}
+                  {currentFolderKey !== null ? (
+                    <>
+                      <MenuSeparator />
+                      <MenuItem onClick={() => handleMoveSelected(null)}>
+                        移出到未归入文件夹
+                      </MenuItem>
+                    </>
+                  ) : null}
+                </MenuGroup>
+              </ComposerPickerMenuPopup>
+            </Menu>
+          ) : null}
+          {props.onTrashMany || props.onTrash ? (
+            <Button
+              size="xs"
+              variant="ghost"
+              className="gap-1 rounded-full text-destructive hover:text-destructive"
+              onClick={handleTrashSelected}
+            >
+              <TrashCanIcon aria-hidden className="size-3.5" />
+              移到回收站
+            </Button>
+          ) : null}
+          {selectedFileItems.length < orderedInteractiveItems.length ? (
+            <Button
+              size="xs"
+              variant="ghost"
+              className="rounded-full text-muted-foreground"
+              onClick={() =>
+                setSelectedKeys(new Set(orderedInteractiveItems.map((entry) => entry.key)))
+              }
+            >
+              全选
+            </Button>
+          ) : null}
+          <Button
+            size="icon-xs"
+            variant="ghost"
+            className="rounded-full text-muted-foreground"
+            aria-label="取消选择"
+            onClick={() => setSelectedKeys(new Set())}
+          >
+            <XIcon aria-hidden className="size-3.5" />
+          </Button>
+        </div>
+      ) : null}
     </div>
   );
 }

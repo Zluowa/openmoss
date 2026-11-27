@@ -78,3 +78,21 @@ export async function promoteHtmlToPageApp(input: {
   if (!result) throw new Error("应用页会在这个版本中推出，暂时无法保存。");
   return result.app;
 }
+
+/** Moves an 应用页 into a 资料空间, or null for loose personal items. */
+export async function moveSpacePageApp(input: {
+  scopeSpaceId: SpaceId | null;
+  appId: string;
+  expectedRevision: number;
+  spaceId: PageSpaceId | null;
+}): Promise<SpacePageApp | null> {
+  const result = await pageAppsRequest<{ app: SpacePageApp }>("mutate", {
+    op: "move",
+    requestId: crypto.randomUUID(),
+    scopeSpaceId: input.scopeSpaceId,
+    appId: input.appId,
+    expectedRevision: input.expectedRevision,
+    spaceId: input.spaceId,
+  });
+  return result?.app ?? null;
+}

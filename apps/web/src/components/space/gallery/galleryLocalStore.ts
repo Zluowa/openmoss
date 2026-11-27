@@ -17,6 +17,8 @@ interface Persisted {
   readonly collections: readonly GalleryCollection[];
   /** Canvas position overrides: container key → item key → top-left corner. */
   readonly positions: Readonly<Record<string, Readonly<Record<string, { x: number; y: number }>>>>;
+  /** Local folder override (`space:<id>` | `folder:<id>`) for items without DB folder columns (e.g. chat outputs). */
+  readonly folderAssignments: Readonly<Record<string, string>>;
 }
 
 export interface GalleryLocalState extends Persisted {
@@ -27,11 +29,19 @@ export interface GalleryLocalState extends Persisted {
   readonly removeCollection: (id: string) => void;
   readonly moveOnCanvas: (container: string, itemKey: string, x: number, y: number) => void;
   readonly resetCanvas: (container: string) => void;
+  readonly assignItemFolder: (itemKey: string, folderKey: string | null) => void;
+  readonly assignItemsFolder: (itemKeys: readonly string[], folderKey: string | null) => void;
   /** Test and fixture seeding; replaces everything. */
   readonly replaceAll: (next: Partial<Persisted>) => void;
 }
 
-const EMPTY: Persisted = { tags: {}, descriptions: {}, collections: [], positions: {} };
+const EMPTY: Persisted = {
+  tags: {},
+  descriptions: {},
+  collections: [],
+  positions: {},
+  folderAssignments: {},
+};
 
 function read(): Persisted {
   try {
@@ -43,6 +53,7 @@ function read(): Persisted {
       descriptions: parsed.descriptions ?? {},
       collections: Array.isArray(parsed.collections) ? parsed.collections : [],
       positions: parsed.positions ?? {},
+      folderAssignments: parsed.folderAssignments ?? {},
     };
   } catch {
     return EMPTY;
@@ -51,10 +62,10 @@ function read(): Persisted {
 
 function write(state: Persisted): void {
   try {
-    const { tags, descriptions, collections, positions } = state;
+    const { tags, descriptions, collections, positions, folderAssignments } = state;
     globalThis.localStorage?.setItem(
       STORAGE_KEY,
-      JSON.stringify({ tags, descriptions, collections, positions }),
+      JSON.stringify({ tags, descriptions, collections, positions, folderAssignments }),
     );
   } catch {
     // Private windows and full storage keep working for this visit only.
@@ -102,6 +113,20 @@ export const useGalleryLocalStore = create<GalleryLocalState>((set, get) => {
     resetCanvas: (container) => {
       const { [container]: _removed, ...rest } = get().positions;
       update({ positions: rest });
+    },
+    assignItemFolder: (itemKey, folderKey) => {
+      const next = { ...get().folderAssignments };
+      if (folderKey === null) delete next[itemKey];
+      else next[itemKey] = folderKey;
+      update({ folderAssignments: next });
+    },
+    assignItemsFolder: (itemKeys, folderKey) => {
+      const next = { ...get().folderAssignments };
+      for (const itemKey of itemKeys) {
+        if (folderKey === null) delete next[itemKey];
+        else next[itemKey] = folderKey;
+      }
+      update({ folderAssignments: next });
     },
     replaceAll: (next) => update({ ...EMPTY, ...next }),
   };

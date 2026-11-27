@@ -59,6 +59,7 @@ import { SidebarMenu, SidebarMenuItem } from "../ui/sidebar";
 import { Button } from "../ui/button";
 import { Menu, MenuItem, MenuSeparator, MenuTrigger } from "../ui/menu";
 import { SpaceCreateMenu, type SpaceCreateAction } from "./SpaceCreateMenu";
+import { hasSpaceItemDrag, readDraggedSpaceKeys } from "./spaceDragState";
 import { useSpaceItemMeta } from "../spaceTypes/dashboard/useDashboardItemMeta";
 import { spaceKindMeta } from "./spaceKinds";
 import { SpaceSyncMenuItem } from "./SpaceSyncMenuItem";
@@ -141,6 +142,9 @@ export function SpaceSidebar(props: {
   folders?: readonly GalleryFolder[];
   collections?: readonly GalleryCollection[];
   tags?: readonly TagCount[];
+  onDropToSpace?: ((spaceId: PageSpace["id"], keys: readonly string[]) => void) | undefined;
+  onDropToLibraryFolder?: ((folderId: string, keys: readonly string[]) => void) | undefined;
+  onDropToLoose?: ((keys: readonly string[]) => void) | undefined;
 }) {
   // Folders, tags and 合集 come from the 资料空间's shared data unless given (tests, stories).
   const gallery = useOptionalGallery();
@@ -153,6 +157,7 @@ export function SpaceSidebar(props: {
     [props.tags, gallery],
   );
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
   // Opening a space from anywhere (a folder card, search) unfolds it here too.
   const openSpaceId = props.section.type === "space" ? props.section.spaceId : null;
   useEffect(() => {
@@ -293,15 +298,39 @@ export function SpaceSidebar(props: {
                 onClick={props.onSearch}
               />
             ) : null}
-            <NavRow
-              icon={LayoutGridIcon}
-              label="全部"
-              active={isSection({ type: "all" }) && syncedKind === "any"}
-              onClick={() => {
-                setSyncedSpaceHomeKind("any");
-                props.onSection({ type: "all" });
+            <div
+              className={cn(
+                "rounded-control transition-colors",
+                dropTarget === "home" && "bg-info/12 ring-2 ring-info",
+              )}
+              onDragOver={(event) => {
+                if (!props.onDropToLoose || !hasSpaceItemDrag(event.dataTransfer)) return;
+                event.preventDefault();
+                event.dataTransfer.dropEffect = "move";
+                if (dropTarget !== "home") setDropTarget("home");
               }}
-            />
+              onDragLeave={() => {
+                if (dropTarget === "home") setDropTarget(null);
+              }}
+              onDrop={(event) => {
+                if (dropTarget === "home") setDropTarget(null);
+                if (!props.onDropToLoose) return;
+                const keys = readDraggedSpaceKeys(event.dataTransfer);
+                if (keys.length === 0) return;
+                event.preventDefault();
+                props.onDropToLoose(keys);
+              }}
+            >
+              <NavRow
+                icon={LayoutGridIcon}
+                label="全部"
+                active={isSection({ type: "all" }) && syncedKind === "any"}
+                onClick={() => {
+                  setSyncedSpaceHomeKind("any");
+                  props.onSection({ type: "all" });
+                }}
+              />
+            </div>
           </SidebarMenu>
           <Fold label="类型" open={kindsOpen} onToggle={() => setKindsOpen((open) => !open)}>
             {KIND_ROWS.map((row) => (
@@ -361,10 +390,29 @@ export function SpaceSidebar(props: {
                         "group/space-row",
                         SIDEBAR_HEADER_ROW_CLASS_NAME,
                         "p-0 pe-1 ps-2",
-                        active
-                          ? SIDEBAR_ROW_ACTIVE_CLASS_NAME
-                          : cn(SIDEBAR_ROW_IDLE_TEXT_CLASS_NAME, SIDEBAR_ROW_HOVER_CLASS_NAME),
+                        dropTarget === `space:${space.id}`
+                          ? "bg-info/12 ring-2 ring-info text-foreground"
+                          : active
+                            ? SIDEBAR_ROW_ACTIVE_CLASS_NAME
+                            : cn(SIDEBAR_ROW_IDLE_TEXT_CLASS_NAME, SIDEBAR_ROW_HOVER_CLASS_NAME),
                       )}
+                      onDragOver={(event) => {
+                        if (!props.onDropToSpace || !hasSpaceItemDrag(event.dataTransfer)) return;
+                        event.preventDefault();
+                        event.dataTransfer.dropEffect = "move";
+                        if (dropTarget !== `space:${space.id}`) setDropTarget(`space:${space.id}`);
+                      }}
+                      onDragLeave={() => {
+                        if (dropTarget === `space:${space.id}`) setDropTarget(null);
+                      }}
+                      onDrop={(event) => {
+                        if (dropTarget === `space:${space.id}`) setDropTarget(null);
+                        if (!props.onDropToSpace) return;
+                        const keys = readDraggedSpaceKeys(event.dataTransfer);
+                        if (keys.length === 0) return;
+                        event.preventDefault();
+                        props.onDropToSpace(space.id, keys);
+                      }}
                     >
                       <button
                         type="button"
@@ -440,18 +488,49 @@ export function SpaceSidebar(props: {
               <SidebarMenu className="gap-0.5">
                 {libraryOnlyFolders.map((folder) => {
                   const folderId = folder.libraryFolderIds[0] ?? "";
+                  const dropKey = `folder:${folderId}`;
                   return (
-                    <NavRow
+                    <div
                       key={folder.key}
-                      icon={FolderIcon}
-                      label={folder.title}
-                      detail={folder.items.length ? String(folder.items.length) : undefined}
-                      active={isSection({ type: "folder", folderId })}
-                      onClick={() => {
-                        setSyncedSpaceHomeKind("any");
-                        props.onSection({ type: "folder", folderId });
+                      className={cn(
+                        "rounded-control transition-colors",
+                        dropTarget === dropKey && "bg-info/12 ring-2 ring-info",
+                      )}
+                      onDragOver={(event) => {
+                        if (
+                          !props.onDropToLibraryFolder ||
+                          !folderId ||
+                          !hasSpaceItemDrag(event.dataTransfer)
+                        ) {
+                          return;
+                        }
+                        event.preventDefault();
+                        event.dataTransfer.dropEffect = "move";
+                        if (dropTarget !== dropKey) setDropTarget(dropKey);
                       }}
-                    />
+                      onDragLeave={() => {
+                        if (dropTarget === dropKey) setDropTarget(null);
+                      }}
+                      onDrop={(event) => {
+                        if (dropTarget === dropKey) setDropTarget(null);
+                        if (!props.onDropToLibraryFolder || !folderId) return;
+                        const keys = readDraggedSpaceKeys(event.dataTransfer);
+                        if (keys.length === 0) return;
+                        event.preventDefault();
+                        props.onDropToLibraryFolder(folderId, keys);
+                      }}
+                    >
+                      <NavRow
+                        icon={FolderIcon}
+                        label={folder.title}
+                        detail={folder.items.length ? String(folder.items.length) : undefined}
+                        active={isSection({ type: "folder", folderId })}
+                        onClick={() => {
+                          setSyncedSpaceHomeKind("any");
+                          props.onSection({ type: "folder", folderId });
+                        }}
+                      />
+                    </div>
                   );
                 })}
               </SidebarMenu>
