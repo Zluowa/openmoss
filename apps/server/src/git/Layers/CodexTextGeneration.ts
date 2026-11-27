@@ -1530,6 +1530,19 @@ const makeCodexTextGeneration = Effect.gen(function* () {
     });
   };
 
+  const generateBoardAssistLines: NonNullable<TextGenerationShape["generateBoardAssistLines"]> = (
+    input,
+  ) =>
+    runCodexJson({
+      operation: "generateBoardAssistLines",
+      cwd: input.cwd,
+      prompt: `${input.prompt}\n\nReturn JSON object {"lines": "..."} where lines contains the exact newline-separated JSONL board ops and final {"say":"..."} line.`,
+      outputSchemaJson: Schema.Struct({ lines: Schema.String }),
+      ...(input.model ? { model: input.model } : {}),
+      ...(input.modelSelection ? { modelSelection: input.modelSelection } : {}),
+      ...(input.providerOptions ? { providerOptions: input.providerOptions } : {}),
+    });
+
   return {
     generateCommitMessage,
     generatePrContent,
@@ -1542,6 +1555,7 @@ const makeCodexTextGeneration = Effect.gen(function* () {
     generateProjectDigest,
     generateAutomationIntent,
     evaluateAutomationCompletion,
+    generateBoardAssistLines,
   } satisfies TextGenerationShape;
 });
 

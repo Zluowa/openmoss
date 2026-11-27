@@ -96,7 +96,11 @@ function readCapabilities(value: unknown): BoardAssistCapability[] {
 }
 
 function readTierOverride(value: unknown): BoardAssistTierOverride | undefined {
-  return value === "auto" || value === "quick" || value === "default" || value === "complex"
+  return value === "auto" ||
+    value === "custom" ||
+    value === "quick" ||
+    value === "default" ||
+    value === "complex"
     ? value
     : undefined;
 }

@@ -252,5 +252,20 @@ describe("boardCanvas", () => {
     expect(isBoardOp({ op: "undo", steps: 0 })).toBe(false);
     expect(isBoardOp({ op: "redo", steps: 2 })).toBe(true);
     expect(isBoardOp({ op: "redo", steps: 25 })).toBe(false);
+
+    expect(BOARD_OP_KINDS).toContain("addHtml");
+    expect(
+      isBoardOp({
+        op: "addHtml",
+        key: "h1",
+        title: "Demo",
+        html: "<div>hello</div>",
+        bg: "#ffffff",
+        radius: 12,
+        w: 800,
+        h: 500,
+      }),
+    ).toBe(true);
+    expect(isBoardOp({ op: "addHtml", html: "   " })).toBe(false);
   });
 });

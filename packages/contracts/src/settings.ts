@@ -359,6 +359,8 @@ export const ServerSettings = Schema.Struct({
   // When the first-run welcome tour was completed or skipped. Server-backed so a
   // browser-storage reset does not replay setup on an already configured install.
   onboardingCompletedAt: Schema.optionalKey(Schema.NullOr(IsoDateTime)),
+  // Optional CLI/custom model selected by the user for the whiteboard assist "custom" tier.
+  boardAssistCustomModel: Schema.optionalKey(Schema.NullOr(ModelSelection)),
 });
 export type ServerSettings = typeof ServerSettings.Type;
 
@@ -555,6 +557,7 @@ export const ServerSettingsPatch = Schema.Struct({
   // Replaced whole, never merged. Clients may only send `null`.
   agentTheme: Schema.optionalKey(Schema.NullOr(MossPublishedTheme)),
   onboardingCompletedAt: Schema.optionalKey(Schema.NullOr(IsoDateTime)),
+  boardAssistCustomModel: Schema.optionalKey(Schema.NullOr(ModelSelection)),
 });
 export type ServerSettingsPatch = typeof ServerSettingsPatch.Type;
 

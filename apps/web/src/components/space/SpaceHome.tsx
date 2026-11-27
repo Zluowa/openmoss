@@ -23,6 +23,7 @@ import {
   type ReactNode,
 } from "react";
 
+import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 import {
   AddPlusIcon,
   CheckIcon,
@@ -466,6 +467,7 @@ export function SpaceHome(
   useEffect(() => {
     if (view === "canvas") return;
     const onKeyDown = (event: KeyboardEvent) => {
+      if (isImeComposingKeyEvent(event)) return;
       const target = event.target as HTMLElement | null;
       if (
         target &&

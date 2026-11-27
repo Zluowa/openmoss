@@ -293,6 +293,17 @@ const makeProviderTextGeneration = Effect.gen(function* () {
       dispatch("evaluateAutomationCompletion", input, (service, routedInput) =>
         service.evaluateAutomationCompletion(routedInput),
       ),
+    generateBoardAssistLines: (input) =>
+      dispatch("generateBoardAssistLines", input, (service, routedInput) =>
+        service.generateBoardAssistLines
+          ? service.generateBoardAssistLines(routedInput)
+          : Effect.fail(
+              new TextGenerationError({
+                operation: "generateBoardAssistLines",
+                detail: "Selected provider does not support board assist generation.",
+              }),
+            ),
+      ),
   } satisfies TextGen.TextGenerationShape;
 });
 

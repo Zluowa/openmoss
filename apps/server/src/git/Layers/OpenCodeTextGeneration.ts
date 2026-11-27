@@ -850,6 +850,25 @@ const makeOpenCodeCompatibleTextGeneration = (config: OpenCodeCompatibleTextGene
         });
       });
 
+    const generateBoardAssistLines: NonNullable<TextGenerationShape["generateBoardAssistLines"]> =
+      Effect.fn(`${config.serviceName}.generateBoardAssistLines`)(function* (input) {
+        const modelSelection = resolveOpenCodeCompatibleModelSelection(config, input);
+        if (!modelSelection) {
+          return yield* new TextGenerationError({
+            operation: "generateBoardAssistLines",
+            detail: `Invalid ${config.displayName} model selection.`,
+          });
+        }
+        return yield* runOpenCodeJson({
+          operation: "generateBoardAssistLines",
+          cwd: input.cwd,
+          prompt: `${input.prompt}\n\nReturn JSON object {"lines": "..."} where lines contains the exact newline-separated JSONL board ops and final {"say":"..."} line.`,
+          outputSchemaJson: Schema.Struct({ lines: Schema.String }),
+          modelSelection,
+          ...(input.providerOptions ? { providerOptions: input.providerOptions } : {}),
+        });
+      });
+
     return {
       generateCommitMessage,
       generatePrContent,
@@ -861,6 +880,7 @@ const makeOpenCodeCompatibleTextGeneration = (config: OpenCodeCompatibleTextGene
       generateProjectDigest,
       generateAutomationIntent,
       evaluateAutomationCompletion,
+      generateBoardAssistLines,
     } satisfies TextGenerationShape;
   });
 

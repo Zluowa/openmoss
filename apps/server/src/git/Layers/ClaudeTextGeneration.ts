@@ -609,6 +609,22 @@ const makeClaudeTextGeneration = Effect.gen(function* () {
       });
     });
 
+  const generateBoardAssistLines: NonNullable<TextGenerationShape["generateBoardAssistLines"]> =
+    Effect.fn("ClaudeTextGeneration.generateBoardAssistLines")(function* (input) {
+      const modelSelection = yield* requireClaudeModelSelection(
+        "generateBoardAssistLines",
+        input.modelSelection,
+      );
+      return yield* runClaudeJson({
+        operation: "generateBoardAssistLines",
+        cwd: input.cwd,
+        prompt: `${input.prompt}\n\nReturn JSON object {"lines": "..."} where lines contains the exact newline-separated JSONL board ops and final {"say":"..."} line.`,
+        outputSchemaJson: Schema.Struct({ lines: Schema.String }),
+        modelSelection,
+        ...(input.providerOptions ? { providerOptions: input.providerOptions } : {}),
+      });
+    });
+
   return {
     generateCommitMessage,
     generatePrContent,
@@ -620,6 +636,7 @@ const makeClaudeTextGeneration = Effect.gen(function* () {
     generateProjectDigest,
     generateAutomationIntent,
     evaluateAutomationCompletion,
+    generateBoardAssistLines,
   } satisfies TextGenerationShape;
 });
 

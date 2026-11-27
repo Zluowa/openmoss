@@ -90,6 +90,9 @@ export function applyServerSettingsPatch(
         }
       : {}),
     ...(patch.agentTheme !== undefined ? { agentTheme: patch.agentTheme } : {}),
+    ...(patch.boardAssistCustomModel !== undefined
+      ? { boardAssistCustomModel: patch.boardAssistCustomModel }
+      : {}),
   };
   if (!selectionPatch) {
     return next;

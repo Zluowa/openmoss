@@ -224,6 +224,18 @@ export interface AutomationCompletionEvaluationResult {
   reason: string;
 }
 
+export interface BoardAssistLinesGenerationInput {
+  cwd: string;
+  prompt: string;
+  model?: string;
+  modelSelection?: ModelSelection;
+  providerOptions?: ProviderStartOptions;
+}
+
+export interface BoardAssistLinesGenerationResult {
+  lines: string;
+}
+
 export interface ProjectDigestGenerationInput {
   cwd: string;
   previousSummary?: string | undefined;
@@ -255,7 +267,8 @@ export type TextGenerationOperation =
   | "generateComposerPrediction"
   | "generateProjectDigest"
   | "generateAutomationIntent"
-  | "evaluateAutomationCompletion";
+  | "evaluateAutomationCompletion"
+  | "generateBoardAssistLines";
 
 /**
  * TextGenerationShape - Service API for AI-generated Git and thread text.
@@ -333,6 +346,13 @@ export interface TextGenerationShape {
   readonly evaluateAutomationCompletion: (
     input: AutomationCompletionEvaluationInput,
   ) => Effect.Effect<AutomationCompletionEvaluationResult, TextGenerationError>;
+
+  /**
+   * Generate JSONL whiteboard assist ops via a configured CLI provider.
+   */
+  readonly generateBoardAssistLines?: (
+    input: BoardAssistLinesGenerationInput,
+  ) => Effect.Effect<BoardAssistLinesGenerationResult, TextGenerationError>;
 }
 
 /**

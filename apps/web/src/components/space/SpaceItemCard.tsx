@@ -18,6 +18,7 @@ import {
 } from "react";
 
 import { CheckIcon, EllipsisIcon, PinFilledIcon } from "~/lib/icons";
+import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 import { cn } from "~/lib/utils";
 import { resolveWsHttpUrl } from "~/lib/wsHttpUrl";
 import { ensureNativeApi } from "~/nativeApi";
@@ -132,6 +133,7 @@ export function SpaceItemCard(
   };
 
   const handlePrimaryKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+    if (isImeComposingKeyEvent(event)) return;
     if (event.key === "Enter" && !renaming) {
       event.preventDefault();
       props.onOpen(item);

@@ -18,6 +18,7 @@ import { useCallback, useMemo, useState } from "react";
 
 import {
   CUSTOM_MODEL_EDITOR_PROVIDER_SETTINGS,
+  type AppSettings,
   type AppSettingsBinding,
   MAX_CUSTOM_MODEL_LENGTH,
   getCustomModelsForProvider,
@@ -406,6 +407,68 @@ export function ModelsSettingsPanel({
             </SettingsSelectControl>
           }
         />
+        {(() => {
+          const customBoardModel = settings.boardAssistCustomModel;
+          const customBoardOptionValue = customBoardModel
+            ? `${customBoardModel.instanceId ?? customBoardModel.provider}:${customBoardModel.provider}:${customBoardModel.model}`
+            : "__none__";
+          const matchedCustomOption = gitTextGenerationPickerOptions.find(
+            (entry) => entry.value === customBoardOptionValue,
+          );
+          const customBoardLabel = customBoardModel
+            ? matchedCustomOption
+              ? `${matchedCustomOption.instance.label} / ${matchedCustomOption.option.name}`
+              : `${customBoardModel.provider} / ${customBoardModel.model}`
+            : "Not set (hidden in canvas)";
+          return (
+            <SettingsRow
+              title="Canvas custom model"
+              description="Optional CLI model exposed as Custom in the canvas model menu. Hidden when unset."
+              resetAction={
+                customBoardModel ? (
+                  <SettingResetButton
+                    label="canvas custom model"
+                    onClick={() => updateSettings({ boardAssistCustomModel: null })}
+                  />
+                ) : null
+              }
+              control={
+                <SettingsSelectControl
+                  value={customBoardOptionValue}
+                  onValueChange={(value) => {
+                    if (value === "__none__") {
+                      updateSettings({ boardAssistCustomModel: null });
+                      return;
+                    }
+                    if (!value) return;
+                    const [instanceId, provider, ...modelParts] = value.split(":");
+                    const model = modelParts.join(":");
+                    if (!instanceId || !provider || !model) return;
+                    updateSettings({
+                      boardAssistCustomModel: {
+                        provider: provider as ProviderKind,
+                        instanceId,
+                        model,
+                      } as AppSettings["boardAssistCustomModel"],
+                    });
+                  }}
+                  ariaLabel="Canvas custom model"
+                  triggerClassName="w-full sm:w-52"
+                  valueContent={customBoardLabel}
+                >
+                  <SelectItem hideIndicator value="__none__">
+                    Not set (hidden in canvas)
+                  </SelectItem>
+                  {gitTextGenerationPickerOptions.map(({ instance, key, option, value }) => (
+                    <SelectItem hideIndicator key={`canvas:${key}`} value={value}>
+                      {instance.label} / {option.name}
+                    </SelectItem>
+                  ))}
+                </SettingsSelectControl>
+              }
+            />
+          );
+        })()}
       </SettingsSection>
 
       <SettingsSection title="Custom models">

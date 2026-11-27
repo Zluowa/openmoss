@@ -54,6 +54,7 @@ export const BOARD_OP_KINDS = [
   "addText",
   "addShape",
   "addDrawing",
+  "addHtml",
   "addTable",
   "addPen",
   "connect",
@@ -135,6 +136,19 @@ export type BoardOp =
       readonly h?: number;
     } & BoardRelativePlace)
   | ({
+      readonly op: "addHtml";
+      readonly key?: string;
+      readonly title?: string;
+      readonly html: string;
+      readonly bg?: string;
+      readonly radius?: number;
+      readonly frame?: Ref;
+      readonly x?: number;
+      readonly y?: number;
+      readonly w?: number;
+      readonly h?: number;
+    } & BoardRelativePlace)
+  | ({
       readonly op: "addTable";
       readonly key?: string;
       readonly headers: readonly string[];
@@ -181,6 +195,10 @@ export type BoardOp =
       readonly h?: number;
       readonly svg?: string;
       readonly look?: "marker" | "clean";
+      readonly html?: string;
+      readonly title?: string;
+      readonly bg?: string;
+      readonly radius?: number;
     }
   | { readonly op: "delete"; readonly ids: readonly Ref[] }
   | {
@@ -291,6 +309,14 @@ export function isBoardOp(value: unknown): value is BoardOp {
       return isBoardGeo(value.geo);
     case "addDrawing":
       return typeof value.svg === "string" && value.svg.trim().length > 0;
+    case "addHtml":
+      return (
+        typeof value.html === "string" &&
+        value.html.trim().length > 0 &&
+        (value.title === undefined || typeof value.title === "string") &&
+        (value.bg === undefined || typeof value.bg === "string") &&
+        (value.radius === undefined || isFiniteNumber(value.radius))
+      );
     case "addTable":
       return (
         Array.isArray(value.headers) &&
@@ -422,6 +448,7 @@ function extractRichPlainText(node: unknown, budget = { left: 4_000 }): string {
 function readShapeText(shape: BoardCanvasRecord): string {
   const props = isRecord(shape.props) ? shape.props : {};
   if (typeof props.name === "string" && shape.type === "frame") return props.name;
+  if (typeof props.title === "string" && shape.type === "moss-html") return props.title;
   if (props.richText !== undefined) return extractRichPlainText(props.richText).trim();
   return typeof props.text === "string" ? props.text : "";
 }

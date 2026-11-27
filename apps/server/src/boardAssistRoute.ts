@@ -18,8 +18,11 @@ import {
   cachedBoardAssistModels,
   readBoardAssistBody,
   streamBoardAssist,
+  streamBoardAssistViaCli,
 } from "./boardAssist";
+import { TextGeneration } from "./git/Services/TextGeneration.ts";
 import { ServerConfig } from "./config";
+import { ServerSettingsService } from "./serverSettings";
 import { resolveMossMediaCredential } from "./mossMediaAuthority";
 import {
   canvasBoardScopeFromUrl,
@@ -58,7 +61,7 @@ function boardAssistCorsHeaders(input: {
   return {
     "Access-Control-Allow-Origin": origin,
     "Access-Control-Allow-Credentials": "true",
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     "Access-Control-Allow-Headers": "authorization, content-type",
     Vary: "Origin",
   };
@@ -129,7 +132,7 @@ const boardAssistEffectHandler = Effect.gen(function* () {
   if (request.method === "OPTIONS") {
     return HttpServerResponse.empty({ status: 204, headers: corsHeaders });
   }
-  if (request.method !== "POST") {
+  if (request.method !== "GET" && request.method !== "POST") {
     return HttpServerResponse.text("Method Not Allowed", { status: 405, headers: corsHeaders });
   }
 
@@ -148,6 +151,7 @@ const boardAssistEffectHandler = Effect.gen(function* () {
       );
     }
     if (
+      request.method === "POST" &&
       shouldRejectAuthMutationOrigin({
         rawOrigin: request.headers.origin,
         requestOrigin: url.origin,
@@ -160,6 +164,29 @@ const boardAssistEffectHandler = Effect.gen(function* () {
         { status: 403, headers: corsHeaders },
       );
     }
+  }
+
+  if (request.method === "GET") {
+    const settingsOpt = yield* Effect.serviceOption(ServerSettingsService);
+    const customSelection = Option.isSome(settingsOpt)
+      ? ((yield* settingsOpt.value.getSettings.pipe(Effect.catch(() => Effect.succeed(null))))
+          ?.boardAssistCustomModel ?? null)
+      : null;
+    return HttpServerResponse.jsonUnsafe(
+      {
+        customModel: customSelection
+          ? {
+              provider: customSelection.provider,
+              ...(customSelection.instanceId !== undefined
+                ? { instanceId: customSelection.instanceId }
+                : {}),
+              model: customSelection.model,
+              label: customSelection.model,
+            }
+          : null,
+      },
+      { status: 200, headers: corsHeaders },
+    );
   }
 
   let boardScope: CanvasBoardScope | null = null;
@@ -188,6 +215,55 @@ const boardAssistEffectHandler = Effect.gen(function* () {
 
   const encoder = new TextEncoder();
   const sse = (event: unknown) => encoder.encode(`data: ${JSON.stringify(event)}\n\n`);
+
+  if (input.ask.tierOverride === "custom") {
+    const settingsOpt = yield* Effect.serviceOption(ServerSettingsService);
+    const customSelection = Option.isSome(settingsOpt)
+      ? ((yield* settingsOpt.value.getSettings.pipe(Effect.catch(() => Effect.succeed(null))))
+          ?.boardAssistCustomModel ?? null)
+      : null;
+    const textGenOpt = yield* Effect.serviceOption(TextGeneration);
+    const generateLines = Option.isSome(textGenOpt)
+      ? textGenOpt.value.generateBoardAssistLines
+      : undefined;
+    if (customSelection && generateLines) {
+      async function* runCustomCliStream() {
+        yield* streamBoardAssistViaCli(input!, customSelection!, (prompt) =>
+          Effect.runPromise(
+            generateLines!({
+              cwd: config.cwd,
+              prompt,
+              model: customSelection!.model,
+              modelSelection: customSelection!,
+            }),
+          ),
+        );
+      }
+
+      const cliStream = Stream.fromAsyncIterable(runCustomCliStream(), (cause) => cause).pipe(
+        Stream.map(sse),
+        Stream.catch(() =>
+          Stream.succeed(
+            sse({
+              type: "error",
+              code: "cli_failed",
+              message: BOARD_ASSIST_MESSAGES.upstream_error,
+            }),
+          ),
+        ),
+      );
+
+      return HttpServerResponse.stream(cliStream, {
+        status: 200,
+        contentType: "text/event-stream; charset=utf-8",
+        headers: {
+          ...corsHeaders,
+          "Cache-Control": "no-cache",
+        },
+      });
+    }
+  }
+
   const stub = pageAppAiStubEndpoint(process.env);
   const credentialResult = stub
     ? null

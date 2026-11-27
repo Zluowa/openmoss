@@ -241,4 +241,48 @@ describe("board assist server", () => {
     expect(captured?.tier).toBe("complex");
     expect(captured?.images).toEqual([{ mimeType: "image/webp", dataBase64: "UklGRg==" }]);
   });
+
+  it("supports custom tierOverride and html capability prompt instructions", async () => {
+    let capturedPrompt = "";
+    const parsed = readBoardAssistBody({
+      board: {
+        shapes: [
+          { id: "shape:h1", type: "moss-html", text: "实时看板", x: 0, y: 0, w: 800, h: 500 },
+        ],
+        truncated: false,
+      },
+      ask: {
+        text: "创建一个可交互 HTML demo",
+        via: "composer",
+        tierOverride: "custom",
+        capabilities: ["html", "drawing", "relativePlace"],
+      },
+    })!;
+    expect(parsed.ask.tierOverride).toBe("custom");
+    expect(parsed.ask.capabilities).toEqual(["html", "drawing", "relativePlace"]);
+
+    const events = [];
+    for await (const event of streamBoardAssistViaCli(
+      parsed,
+      { provider: "codex", model: "gpt-5.3-codex" },
+      async (prompt) => {
+        capturedPrompt = prompt;
+        return {
+          lines: '{"op":"addHtml","title":"Demo","html":"<h1>Hi</h1>"}\n{"say":"已生成"}\n',
+        };
+      },
+    )) {
+      events.push(event);
+    }
+    expect(capturedPrompt).toContain("addHtml");
+    expect(capturedPrompt).toContain("NATIVELY renders live interactive HTML");
+    expect(events).toEqual([
+      { type: "start", tier: "cli" },
+      {
+        type: "text",
+        delta: '{"op":"addHtml","title":"Demo","html":"<h1>Hi</h1>"}\n{"say":"已生成"}\n',
+      },
+      { type: "done", model: "codex/gpt-5.3-codex" },
+    ]);
+  });
 });

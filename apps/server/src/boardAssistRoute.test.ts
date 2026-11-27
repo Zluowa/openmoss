@@ -30,7 +30,9 @@ import {
 import { PagesServiceLive } from "./pages/Layers/PagesService";
 import { LOCAL_PAGES_PRINCIPAL } from "./pages/Services/PagesService";
 import { PageTypesService, PageTypesServiceLive } from "./pages/types/PageTypesService";
+import { TextGeneration, type TextGenerationShape } from "./git/Services/TextGeneration";
 import { SqlitePersistenceMemory } from "./persistence/Layers/Sqlite";
+import { ServerSettingsService } from "./serverSettings";
 
 function makeTestConfig(overrides: Partial<ServerConfigShape> = {}): ServerConfigShape {
   const baseDir = path.join(os.tmpdir(), `moss-board-assist-${randomUUID()}`);
@@ -103,7 +105,14 @@ async function startStubSseServer(): Promise<string> {
   return `http://127.0.0.1:${address.port}/v1/chat/completions`;
 }
 
-async function createRouteHarness() {
+async function createRouteHarness(options?: {
+  readonly boardAssistCustomModel?: {
+    readonly provider: "codex";
+    readonly instanceId?: string;
+    readonly model: string;
+  } | null;
+  readonly generateBoardAssistLines?: TextGenerationShape["generateBoardAssistLines"];
+}) {
   const config = makeTestConfig();
   const pageTypesLayer = PageTypesServiceLive.pipe(
     Layer.provideMerge(PagesServiceLive),
@@ -136,10 +145,22 @@ async function createRouteHarness() {
   const runtime = ManagedRuntime.make(pageTypesLayer);
   const sql = await runtime.runPromise(Effect.service(SqlClient.SqlClient));
   const types = await runtime.runPromise(Effect.service(PageTypesService));
+  const settingsLayer = ServerSettingsService.layerTest(
+    options?.boardAssistCustomModel
+      ? { boardAssistCustomModel: options.boardAssistCustomModel }
+      : {},
+  );
+  const textGenLayer = options?.generateBoardAssistLines
+    ? Layer.mock(TextGeneration)({
+        generateBoardAssistLines: options.generateBoardAssistLines,
+      } as Partial<TextGenerationShape> as TextGenerationShape)
+    : Layer.empty;
   const routeServices = Layer.mergeAll(
     Layer.succeed(PageTypesService, types),
     authLayer,
     Layer.succeed(ServerConfig, config),
+    settingsLayer,
+    textGenLayer,
     Layer.mock(MossPhoneAccountService)({}),
     Layer.mock(MossCloudAccountService)({}),
     Layer.mock(MossEnterpriseKeyAccount)({}),
@@ -353,5 +374,72 @@ describe("POST /api/moss/board/assist", () => {
     )?.[1];
     expect(Array.isArray(firstUser?.content)).toBe(true);
     expect(typeof secondUser?.content).toBe("string");
+  });
+
+  it("exposes GET customModel config and routes custom tier through CLI TextGeneration", async () => {
+    const emptyHarness = await createRouteHarness();
+    const emptyRes = await emptyHarness.web.handler(
+      new Request(`http://127.0.0.1:3000${MOSS_BOARD_ASSIST_ROUTE_PATH}`, {
+        method: "GET",
+        headers: { authorization: "Bearer owner-token" },
+      }),
+    );
+    expect(emptyRes.status).toBe(200);
+    expect(await emptyRes.json()).toEqual({ customModel: null });
+
+    let receivedPrompt = "";
+    const configuredHarness = await createRouteHarness({
+      boardAssistCustomModel: { provider: "codex", instanceId: "codex", model: "gpt-5.3-codex" },
+      generateBoardAssistLines: (input) => {
+        receivedPrompt = input.prompt;
+        return Effect.succeed({
+          lines: '{"op":"addHtml","title":"Demo","html":"<div>ok</div>"}\n{"say":"完成"}\n',
+        });
+      },
+    });
+    const configRes = await configuredHarness.web.handler(
+      new Request(`http://127.0.0.1:3000${MOSS_BOARD_ASSIST_ROUTE_PATH}`, {
+        method: "GET",
+        headers: { authorization: "Bearer owner-token" },
+      }),
+    );
+    expect(configRes.status).toBe(200);
+    expect(await configRes.json()).toEqual({
+      customModel: {
+        provider: "codex",
+        instanceId: "codex",
+        model: "gpt-5.3-codex",
+        label: "gpt-5.3-codex",
+      },
+    });
+
+    const postRes = await configuredHarness.web.handler(
+      new Request(`http://127.0.0.1:3000${MOSS_BOARD_ASSIST_ROUTE_PATH}`, {
+        method: "POST",
+        headers: {
+          authorization: "Bearer owner-token",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          board: { shapes: [], truncated: false },
+          ask: {
+            text: "画个网页 demo",
+            via: "composer",
+            tierOverride: "custom",
+            capabilities: ["html"],
+          },
+        }),
+      }),
+    );
+    expect(postRes.status).toBe(200);
+    const sseText = await postRes.text();
+    const events = sseText
+      .split("\n\n")
+      .map((chunk) => chunk.trim())
+      .filter((chunk) => chunk.startsWith("data:"))
+      .map((chunk) => JSON.parse(chunk.slice(5).trim()) as { type: string; model?: string });
+    expect(events[0]).toEqual({ type: "start", tier: "cli" });
+    expect(events.at(-1)).toEqual({ type: "done", model: "codex/gpt-5.3-codex" });
+    expect(receivedPrompt).toContain("addHtml");
   });
 });

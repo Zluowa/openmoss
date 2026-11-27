@@ -28,7 +28,7 @@ import {
   ProviderKind,
   type SupportedProviderKind,
   type GitTextGenerationProvider,
-  type ModelSelection,
+  ModelSelection,
   SidechatExpiry,
   SourceControlWritingStyle,
   SourceControlCustomInstructions,
@@ -660,6 +660,7 @@ export const AppSettingsSchema = Schema.Struct({
   textGenerationProvider: PersistedProviderKind.pipe(withDefaults(() => "codex" as const)),
   textGenerationProviderInstanceId: Schema.optional(ProviderInstanceId),
   textGenerationModel: Schema.optional(TrimmedNonEmptyString),
+  boardAssistCustomModel: Schema.NullOr(ModelSelection).pipe(withDefaults(() => null)),
   sourceControlWritingStyle: SourceControlWritingStyle.pipe(
     withDefaults(() => "repository" as const),
   ),
@@ -1941,6 +1942,7 @@ export function serverSettingsToAppSettings(settings: ServerSettingsView): Parti
     textGenerationProvider: settings.textGenerationModelSelection.provider,
     textGenerationProviderInstanceId: settings.textGenerationModelSelection.instanceId,
     textGenerationModel: settings.textGenerationModelSelection.model,
+    boardAssistCustomModel: settings.boardAssistCustomModel ?? null,
     sourceControlWritingStyle: settings.sourceControlWritingStyle,
     sourceControlCustomInstructions: settings.sourceControlCustomInstructions,
     onboardingCompletedAt: settings.onboardingCompletedAt ?? null,
@@ -2092,6 +2094,9 @@ export function appSettingsPatchToServerSettingsPatch(
   }
   if (patch.sourceControlCustomInstructions !== undefined) {
     serverPatch.sourceControlCustomInstructions = patch.sourceControlCustomInstructions;
+  }
+  if (hasOwn(patch, "boardAssistCustomModel")) {
+    serverPatch.boardAssistCustomModel = patch.boardAssistCustomModel ?? null;
   }
   if (
     hasOwn(patch, "textGenerationModel") ||
@@ -2407,6 +2412,10 @@ export function buildInitialServerSettingsMigrationPatch(
 
   if (Object.keys(normalizedSettings.providerInstances).length > 0) {
     patch.providerInstances = normalizedSettings.providerInstances;
+  }
+
+  if (normalizedSettings.boardAssistCustomModel !== defaults.boardAssistCustomModel) {
+    patch.boardAssistCustomModel = normalizedSettings.boardAssistCustomModel;
   }
 
   return appSettingsPatchToServerSettingsPatch(patch);

@@ -1,4 +1,4 @@
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Schema } from "effect";
 import { ChildProcessSpawner } from "effect/unstable/process";
 import { ServerConfig } from "../../config.ts";
 
@@ -431,6 +431,26 @@ const makeCursorTextGeneration = Effect.gen(function* () {
       });
     });
 
+  const generateBoardAssistLines: NonNullable<TextGenerationShape["generateBoardAssistLines"]> =
+    Effect.fn("CursorTextGeneration.generateBoardAssistLines")(function* (input) {
+      const modelSelection = resolveCursorModelSelection(input);
+      if (!modelSelection) {
+        return yield* new TextGenerationError({
+          operation: "generateBoardAssistLines",
+          detail: "Invalid Cursor model selection.",
+        });
+      }
+      return yield* runAcpTextGeneration(cursorAcpConfig, {
+        childProcessSpawner,
+        operation: "generateBoardAssistLines",
+        cwd: input.cwd,
+        prompt: `${input.prompt}\n\nReturn JSON object {"lines": "..."} where lines contains the exact newline-separated JSONL board ops and final {"say":"..."} line.`,
+        outputSchemaJson: Schema.Struct({ lines: Schema.String }),
+        modelSelection,
+        providerOptions: input.providerOptions,
+      });
+    });
+
   return {
     generateCommitMessage,
     generatePrContent,
@@ -442,6 +462,7 @@ const makeCursorTextGeneration = Effect.gen(function* () {
     generateProjectDigest,
     generateAutomationIntent,
     evaluateAutomationCompletion,
+    generateBoardAssistLines,
   } satisfies TextGenerationShape;
 });
 

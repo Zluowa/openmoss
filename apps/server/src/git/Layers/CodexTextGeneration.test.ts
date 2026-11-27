@@ -814,6 +814,7 @@ for (const operation of [
   "generateProjectDigest",
   "generateAutomationIntent",
   "evaluateAutomationCompletion",
+  "generateBoardAssistLines",
 ] as const) {
   it.effect.runIf(process.platform === "win32")(
     `refuses Windows ${operation} without the job launcher, before spawning or changing owned auth and config`,
@@ -902,6 +903,10 @@ for (const operation of [
             stopWhen: "Review finished",
             runUserMessage: "Review change",
             runAssistantText: "Reviewed",
+          }),
+          generateBoardAssistLines: service.generateBoardAssistLines!({
+            ...common,
+            prompt: "Add a demo card",
           }),
         };
         const error = yield* invocations[operation].pipe(Effect.flip);

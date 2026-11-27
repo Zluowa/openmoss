@@ -18,6 +18,7 @@ import {
 } from "react";
 
 import { CheckIcon } from "~/lib/icons";
+import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 import { cn } from "~/lib/utils";
 
 import { Button } from "../../ui/button";
@@ -120,6 +121,7 @@ export function SpaceFolderCard(props: {
   };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
+    if (isImeComposingKeyEvent(event)) return;
     if (event.key === "Enter") {
       event.preventDefault();
       props.onOpen(folder);
