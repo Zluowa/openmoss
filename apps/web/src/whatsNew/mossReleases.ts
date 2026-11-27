@@ -24,6 +24,59 @@ export interface MossRelease {
 
 export const MOSS_RELEASES: readonly MossRelease[] = [
   {
+    version: "1.0.19",
+    date: { zh: "11月27日", en: "Nov 27" },
+    notes: {
+      zh: [
+        "修复资料空间打开报错，并在菜单新增「加载示例资料「苔」」",
+        "画布精简去掉贴纸、倒计时与知识库，组件收敛为「内容创作」与「设计」",
+        "修复 Codex 运行中「引导对话」超时卡死，优化国内语音听写",
+        "支持桌面页面应用与对话分屏，更新改为手动点击下载并安静提示新功能",
+      ],
+      en: [
+        "Fixed Data Space crashes and added a menu option to load the sample Moss space",
+        "Simplified Canvas chrome by removing stickers, timer, and knowledge base, leaving Content Creation and Design kits",
+        "Fixed Codex mid-run steering timeouts and improved China voice dictation routing",
+        "Added Desktop Page App split view, manual update downloads, and quiet What's new hints",
+      ],
+    },
+    groups: [
+      {
+        kind: "feat",
+        zh: [
+          "资料空间菜单新增「加载示例资料「苔」」，随时一键补齐预设示例页面与素材",
+          "新增桌面端页面应用与对话右侧分屏预览，更新改为手动点击下载并在顶栏安静提示「新功能」",
+        ],
+        en: [
+          "Added a Data Space menu action to load the sample Moss space anytime",
+          "Added Desktop Page App right-dock split view, manual update downloads, and quiet What's new dialogs",
+        ],
+      },
+      {
+        kind: "improvement",
+        zh: [
+          "精简画布多余菜单与顶部入口，可选组件统一收敛为「内容创作」和「设计」，并对「设计」底部胶囊栏统一视觉风格",
+          "优化国内语音识别与听写链路稳定性",
+        ],
+        en: [
+          "Streamlined Canvas chrome to Content Creation and Design kits and aligned the Design bottom pill styling",
+          "Improved China voice dictation routing reliability",
+        ],
+      },
+      {
+        kind: "fix",
+        zh: [
+          "修复资料空间列表切换与标签编辑导致的页面崩溃（React #185）以及异常历史行的容错加载",
+          "修复 Codex 对话运行过程中插话引导（steer）超时失败与卡在启动中的问题",
+        ],
+        en: [
+          "Fixed Data Space view/tag crashes (React #185) and hardened malformed historical row decoding",
+          "Fixed Codex mid-run steering timeouts and stuck startup indicators",
+        ],
+      },
+    ],
+  },
+  {
     version: "1.0.18",
     date: { zh: "11月27日", en: "Nov 27" },
     notes: {
